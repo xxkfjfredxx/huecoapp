@@ -1,7 +1,8 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from .models import ValidacionHueco, Hueco
-from usuarios.models import PuntosUsuario, ReputacionUsuario
+from usuarios.models import  ReputacionUsuario
+from apps.huecos.services.puntos_service import registrar_puntos
 
 @receiver(post_save, sender=ValidacionHueco)
 def actualizar_estado_hueco(sender, instance, created, **kwargs):
@@ -18,21 +19,11 @@ def actualizar_estado_hueco(sender, instance, created, **kwargs):
     # Actualizar contadores del hueco
     if instance.confirmacion:
         hueco.validaciones_positivas += peso
-        PuntosUsuario.objects.create(
-            usuario=usuario,
-            tipo="validacion_positiva",
-            puntos=2,
-            descripcion=f"Confirmó existencia de hueco #{hueco.id}"
-        )
+        registrar_puntos(usuario, 2, "validacion_positiva", f"Confirmó existencia de hueco #{hueco.id}")
         reputacion.puntaje_total += 1
     else:
         hueco.validaciones_negativas += peso
-        PuntosUsuario.objects.create(
-            usuario=usuario,
-            tipo="validacion_negativa",
-            puntos=1,
-            descripcion=f"Negó existencia de hueco #{hueco.id}"
-        )
+        registrar_puntos(usuario, 1, "validacion_negativa", f"Negó existencia de hueco #{hueco.id}")
         reputacion.puntaje_total += 1
 
     hueco.save()
@@ -45,12 +36,7 @@ def actualizar_estado_hueco(sender, instance, created, **kwargs):
     # Si el hueco fue rechazado, penalizamos al creador
     if hueco.estado == "rechazado":
         creador = hueco.usuario
-        PuntosUsuario.objects.create(
-            usuario=creador,
-            tipo="reporte_falso",
-            puntos=-10,
-            descripcion=f"Hueco #{hueco.id} rechazado por falsedad"
-        )
+        registrar_puntos(creador, -10, "reporte_falso", f"Hueco #{hueco.id} rechazado por falsedad")
         if hasattr(creador, 'reputacion'):
             creador.reputacion.puntaje_total -= 15
             creador.reputacion.actualizar_nivel()

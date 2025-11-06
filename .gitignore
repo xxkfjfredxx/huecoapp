@@ -176,4 +176,6 @@ config.zip
 apps.zip
 config/media/
 backend.zip
-bckend.zip
+google-services.json
+node_modules/
+config/firebase-adminsdk.json

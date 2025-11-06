@@ -3,7 +3,6 @@ from django.db import models
 from django.conf import settings
 
 from apps.usuarios.models import User
-
 class Hueco(models.Model):
     ESTADOS = [
         ('pendiente_validacion', 'Pendiente de validación'),
@@ -63,48 +62,25 @@ class Hueco(models.Model):
             self.asignar_puntos_rechazo()
 
     def asignar_puntos_aprobacion(self):
-        """Otorga puntos al usuario que reportó y a quienes validaron correctamente."""
-        from apps.huecos.models import PuntosUsuario
-
+        from apps.huecos.services.puntos_service import registrar_puntos
         # 🔹 El creador gana más puntos
-        PuntosUsuario.objects.create(
-            usuario=self.usuario,
-            tipo="verificacion",
-            puntos=10,
-            descripcion=f"Hueco #{self.id} confirmado como real"
-        )
+        registrar_puntos(self.usuario, 10, "validacion", "Validación positiva de hueco")
 
         # 🔹 Los validadores positivos también ganan puntos
         for validacion in self.validaciones.filter(voto=True):
             if validacion.usuario != self.usuario:
-                PuntosUsuario.objects.create(
-                    usuario=validacion.usuario,
-                    tipo="confirmacion",
-                    puntos=5,
-                    descripcion=f"Validación positiva del hueco #{self.id}"
-                )
+                registrar_puntos(validacion.usuario, 5, "confirmacion", f"Validación positiva del hueco")
 
     def asignar_puntos_rechazo(self):
-        """Penaliza al usuario que reportó un hueco falso y recompensa a los validadores que lo marcaron como falso."""
-        from apps.huecos.models import PuntosUsuario
-
+        from apps.huecos.services.puntos_service import registrar_puntos
         # 🔸 Penaliza al creador
-        PuntosUsuario.objects.create(
-            usuario=self.usuario,
-            tipo="reporte_falso",
-            puntos=-15,
-            descripcion=f"Hueco #{self.id} rechazado como reporte falso"
-        )
+        registrar_puntos(self.usuario, -15, "reporte_falso", f"Hueco #{self.id} rechazado como reporte falso")
 
         # 🔹 Recompensa a los que votaron correctamente en contra
         for validacion in self.validaciones.filter(voto=False):
             if validacion.usuario != self.usuario:
-                PuntosUsuario.objects.create(
-                    usuario=validacion.usuario,
-                    tipo="verificacion",
-                    puntos=3,
-                    descripcion=f"Validación correcta: Hueco #{self.id} era falso"
-                )
+                registrar_puntos(validacion.usuario, 3, "verificacion", f"Validación correcta: Hueco #{self.id} era falso")
+
 
     def __str__(self):
         return f"Hueco #{self.id} ({self.estado})"
@@ -202,3 +178,21 @@ class ValidacionHueco(models.Model):
 
     def __str__(self):
         return f"Validación de {self.usuario} sobre hueco #{self.hueco.id}"
+    
+
+class DispositivoUsuario(models.Model):
+    """
+    Guarda el token FCM de cada dispositivo móvil.
+    Un usuario puede tener varios dispositivos.
+    """
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="dispositivos"
+    )
+    token_fcm = models.CharField(max_length=255, unique=True)
+    plataforma = models.CharField(max_length=20, default="android")
+    fecha_registro = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.usuario.username} - {self.plataforma}"

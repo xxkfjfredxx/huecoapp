@@ -5,7 +5,8 @@ from pathlib import Path
 import os
 from os import getenv
 from datetime import timedelta
-
+import firebase_admin
+from firebase_admin import credentials
 from dotenv import load_dotenv
 from corsheaders.defaults import default_headers
 
@@ -26,7 +27,6 @@ FIELD_ENCRYPTION_KEY = getenv("FIELD_ENCRYPTION_KEY")
 if DEBUG:
     ALLOWED_HOSTS = ["*"]
 else:
-    # En prod, define ALLOWED_HOSTS=api.midominio.com,otra.com en .env
     ALLOWED_HOSTS = [h.strip() for h in getenv("ALLOWED_HOSTS", "").split(",") if h.strip()]
 
 # Usuario custom
@@ -36,6 +36,23 @@ AUTH_USER_MODEL = "usuarios.User"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
 
+# =========================
+# Firebase Admin SDK
+# =========================
+
+# Ruta absoluta al archivo del Service Account (clave privada)
+# ⚠️ IMPORTANTE: este NO es el google-services.json del móvil.
+# Usa el JSON descargado desde "Cuentas de servicio" en la consola Firebase.
+FIREBASE_CREDENTIALS_PATH = os.path.join(BASE_DIR, "firebase-adminsdk.json")
+
+# Inicializar Firebase solo si no se ha inicializado aún
+if not firebase_admin._apps:
+    try:
+        cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
+        firebase_admin.initialize_app(cred)
+        print("✅ Firebase Admin inicializado correctamente.")
+    except Exception as e:
+        print(f"⚠️ No se pudo inicializar Firebase Admin: {e}")
 # =========================
 # Apps
 # =========================
