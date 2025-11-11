@@ -10,11 +10,11 @@ class UserSerializer(serializers.ModelSerializer):
     is_deleted = serializers.BooleanField(read_only=True)
 
     class Meta:
-        model  = User
+        model = User
         fields = [
             "id", "username", "first_name", "last_name", "email",
             "is_superuser", "is_staff",
-            "role", "role_id",
+            "auth_provider",
             "employee_id",
             "password",
             "is_deleted",
@@ -22,8 +22,11 @@ class UserSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {
             "username": {"validators": []},
-            "password": {"write_only": True, "required": True},
+            "password": {"write_only": True, "required": False},
         }
+
+    def get_employee_id(self, obj):
+        return f"EMP-{obj.id:05d}"
 
 
 # Serializador para la autenticación de login (Request)
@@ -57,3 +60,6 @@ class OTPVerifySerializer(serializers.Serializer):
 
 class LogoutResponseSerializer(serializers.Serializer):
     message = serializers.CharField(default="Logged out successfully")
+
+class GoogleLoginRequestSerializer(serializers.Serializer):
+    id_token = serializers.CharField()

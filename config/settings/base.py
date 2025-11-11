@@ -19,13 +19,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Cambia esto en tu .env => DEBUG=true/false
 DEBUG = getenv("DEBUG", "true").lower() == "true"
-
+GOOGLE_CLIENT_ID = getenv("GOOGLE_CLIENT_ID", "")
 SECRET_KEY = getenv("SECRET_KEY")
 FIELD_ENCRYPTION_KEY = getenv("FIELD_ENCRYPTION_KEY")
 
 # Hosts
 if DEBUG:
     ALLOWED_HOSTS = ["*"]
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 else:
     ALLOWED_HOSTS = [h.strip() for h in getenv("ALLOWED_HOSTS", "").split(",") if h.strip()]
 
@@ -257,3 +258,9 @@ JET_DEFAULT_THEME = "light-gray"
 JET_DASHBOARD_SITE_TITLE = "Panel de Administración"
 JET_INDEX_DASHBOARD = "jet.dashboard.dashboard.DefaultIndexDashboard"
 JET_APP_INDEX_DASHBOARD = "jet.dashboard.dashboard.DefaultAppIndexDashboard"
+
+# =========================
+# Email / Frontend URL
+# =========================
+DEFAULT_FROM_EMAIL = "fredruedao@gmail.com"
+FRONTEND_URL = "https://huecoapp.com"

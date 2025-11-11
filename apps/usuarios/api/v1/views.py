@@ -13,7 +13,7 @@ class UserViewSet(AuditLogMixin, viewsets.ModelViewSet):
     queryset = User.objects.filter(is_deleted=False)
     serializer_class = UserSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ["role", "is_active"]
+    filterset_fields = ["auth_provider", "is_active"]
     search_fields = ["username", "first_name", "last_name", "email"]
     permission_classes = [EsRolPermitido]
     roles_permitidos = ["Admin", "RRHH"]

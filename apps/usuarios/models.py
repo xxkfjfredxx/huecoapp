@@ -20,7 +20,13 @@ class User(AuditMixin, AbstractUser):
         validators=[UnicodeUsernameValidator()],
         error_messages={'unique': _("A user with that username already exists.")},
     )
-
+    AUTH_PROVIDERS = (
+        ("email", "Email/Password"),
+        ("google", "Google"),
+        ("facebook", "Facebook"),
+        ("mixed", "Google + Email"), 
+    )
+    auth_provider = models.CharField(max_length=20, choices=AUTH_PROVIDERS, default="email")
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['username', 'first_name', 'last_name']
 
