@@ -264,3 +264,14 @@ JET_APP_INDEX_DASHBOARD = "jet.dashboard.dashboard.DefaultAppIndexDashboard"
 # =========================
 DEFAULT_FROM_EMAIL = "fredruedao@gmail.com"
 FRONTEND_URL = "https://huecoapp.com"
+
+
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.sendgrid.net"
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+
+EMAIL_HOST_USER = "apikey"  # literal
+EMAIL_HOST_PASSWORD = "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"
+
+DEFAULT_FROM_EMAIL = "hueco.app.co@gmail.com"

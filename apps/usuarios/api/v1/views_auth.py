@@ -21,7 +21,7 @@ from apps.usuarios.auth import VersionedJWTAuthentication
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from django.contrib.auth import logout as dj_logout
 from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
-
+from django.core.mail import EmailMultiAlternatives
 from django.conf import settings
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
@@ -116,7 +116,7 @@ class RegisterView(APIView):
         code = f"{random.randint(0, 999999):06d}"
         code_hash = LoginOTP.hash_code(code)
 
-        # Eliminamos OTPs previos de este usuario (por limpieza)
+        # Limpiar OTPs previos
         LoginOTP.objects.filter(user=user).delete()
 
         expires_at = timezone.now() + timezone.timedelta(minutes=10)
@@ -126,28 +126,43 @@ class RegisterView(APIView):
             expires_at=expires_at,
         )
 
-        # Enviar correo con el código
+        # --- Enviar correo con HTML OTP ---
+        from django.template.loader import render_to_string
+        from django.core.mail import EmailMultiAlternatives
+
         subject = "Código de verificación de tu cuenta HuecoApp"
-        message = f"Tu código de verificación es: {code}"
         from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
 
-        send_mail(
-            subject,
-            message,
-            from_email,
-            [user.email],
-            fail_silently=False,
+        # Render HTML template
+        html_content = render_to_string(
+            "email_otp.html",
+            {"CODE": code, "USER": user}
         )
+
+        # Fallback texto plano
+        text_content = f"Tu código de verificación es: {code}"
+
+        email_message = EmailMultiAlternatives(
+            subject=subject,
+            body=text_content,  # texto plano
+            from_email=from_email,
+            to=[user.email],
+        )
+
+        # Attach HTML
+        email_message.attach_alternative(html_content, "text/html")
+        email_message.send()
+        # --- END correo HTML ---
 
         response_data = {
             "detail": "Se ha enviado un código de verificación a tu correo.",
         }
 
-        # En modo DEBUG devolvemos el código para pruebas
         if getattr(settings, "DEBUG", False):
             response_data["dev_code"] = code
 
         return Response(response_data, status=status.HTTP_201_CREATED)
+
     
 
 class RegisterVerifyView(APIView):
