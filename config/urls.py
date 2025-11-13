@@ -10,15 +10,19 @@ from django.shortcuts import redirect
 from .urls_v1 import urlpatterns as api_urls
 # 👇 importa tus vistas de auth
 from apps.usuarios.api.v1.views_password_reset import PasswordResetConfirmView,PasswordForgotView
-from apps.usuarios.api.v1.views_auth import LoginView, LogoutView, MeView,GoogleLoginView
+from apps.usuarios.api.v1.views_auth import LoginView, LogoutView, MeView,GoogleLoginView,RegisterView,RegisterVerifyView
 from rest_framework_simplejwt.views import TokenRefreshView
 
 
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/v1/", include(api_urls)),
-    path("google-login/", GoogleLoginView.as_view(), name="google-login"), 
+    path("api/auth/google-login/", GoogleLoginView.as_view(), name="google-login"), 
     
+    # Registro + verificación de cuenta
+    path("api/auth/register", RegisterView.as_view(), name="auth-register"),
+    path("api/auth/register/verify", RegisterVerifyView.as_view(), name="auth-register-verify"),
+
     # Auth (public)
     path("password/forgot/", PasswordForgotView.as_view(), name="password_forgot"),
     path("password/reset/", PasswordResetConfirmView.as_view(), name="password_reset_confirm"),

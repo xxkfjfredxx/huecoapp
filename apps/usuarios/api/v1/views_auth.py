@@ -1,3 +1,4 @@
+import random
 from django.contrib.auth import authenticate, login
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -9,8 +10,13 @@ from apps.usuarios.api.v1.serializers import (
     LogoutResponseSerializer,
     TokenResponseSerializer,
     UserSerializer,
-    GoogleLoginRequestSerializer
+    GoogleLoginRequestSerializer,
+    RegisterSerializer,
+    OTPVerifySerializer, 
 )
+from apps.usuarios.models import LoginOTP
+from django.utils import timezone
+from django.core.mail import send_mail
 from apps.usuarios.auth import VersionedJWTAuthentication
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from django.contrib.auth import logout as dj_logout
@@ -72,14 +78,146 @@ class LoginView(APIView):
         access = refresh.access_token
         access["ver"] = user.token_version
 
+        # ✅ Agregamos serialización del usuario (sin quitar nada tuyo)
+        user_data = UserSerializer(user).data
+
         return Response(
             {
-                # 👇 Sin token legacy
                 "access": str(access),
                 "refresh": str(refresh),
+                "user": user_data,  # 👈 añadido
             },
             status=status.HTTP_200_OK,
         )
+    
+    
+class RegisterView(APIView):
+    """
+    Registra un usuario nuevo con email + password + username + nombres.
+    Crea el usuario inactivo y envía un código OTP al correo para validación.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    @extend_schema(
+        request=RegisterSerializer,
+        responses={
+            201: OpenApiResponse(description="Código de verificación enviado al correo"),
+            400: OpenApiResponse(description="Error de validación"),
+        },
+        tags=["auth"],
+    )
+    def post(self, request):
+        serializer = RegisterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = serializer.save()
+
+        # Generamos código de 6 dígitos
+        code = f"{random.randint(0, 999999):06d}"
+        code_hash = LoginOTP.hash_code(code)
+
+        # Eliminamos OTPs previos de este usuario (por limpieza)
+        LoginOTP.objects.filter(user=user).delete()
+
+        expires_at = timezone.now() + timezone.timedelta(minutes=10)
+        LoginOTP.objects.create(
+            user=user,
+            code_hash=code_hash,
+            expires_at=expires_at,
+        )
+
+        # Enviar correo con el código
+        subject = "Código de verificación de tu cuenta HuecoApp"
+        message = f"Tu código de verificación es: {code}"
+        from_email = getattr(settings, "DEFAULT_FROM_EMAIL", None)
+
+        send_mail(
+            subject,
+            message,
+            from_email,
+            [user.email],
+            fail_silently=False,
+        )
+
+        response_data = {
+            "detail": "Se ha enviado un código de verificación a tu correo.",
+        }
+
+        # En modo DEBUG devolvemos el código para pruebas
+        if getattr(settings, "DEBUG", False):
+            response_data["dev_code"] = code
+
+        return Response(response_data, status=status.HTTP_201_CREATED)
+    
+
+class RegisterVerifyView(APIView):
+    """
+    Verifica el código OTP enviado al correo y activa la cuenta.
+    Devuelve también los tokens JWT para que el usuario ya quede logueado.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    @extend_schema(
+        request=OTPVerifySerializer,
+        responses={
+            200: TokenResponseSerializer,
+            400: OpenApiResponse(description="Código inválido o expirado"),
+            404: OpenApiResponse(description="Usuario no encontrado"),
+        },
+        tags=["auth"],
+    )
+    def post(self, request):
+        serializer = OTPVerifySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        email = serializer.validated_data["email"].lower().strip()
+        code = serializer.validated_data["code"]
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response({"detail": "Usuario no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        code_hash = LoginOTP.hash_code(code)
+
+        otp_qs = LoginOTP.objects.filter(user=user, code_hash=code_hash).order_by("-created_at")
+        if not otp_qs.exists():
+            return Response({"detail": "Código inválido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        otp = otp_qs.first()
+        if otp.is_expired():
+            return Response({"detail": "El código ha expirado."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Si todo está ok: activamos usuario
+        if not user.is_active:
+            user.is_active = True
+
+        # Aseguramos que su proveedor sea email/password
+        if user.auth_provider != "email":
+            user.auth_provider = "email"
+
+        user.save(update_fields=["is_active", "auth_provider"])
+
+        # Limpiamos OTPs del usuario
+        LoginOTP.objects.filter(user=user).delete()
+
+        # Generamos tokens JWT igual que en LoginView
+        refresh = RefreshToken.for_user(user)
+        refresh["ver"] = user.token_version
+        access = refresh.access_token
+        access["ver"] = user.token_version
+
+        user_data = UserSerializer(user).data
+
+        return Response(
+            {
+                "access": str(access),
+                "refresh": str(refresh),
+                "user": user_data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 
 class LogoutView(APIView):

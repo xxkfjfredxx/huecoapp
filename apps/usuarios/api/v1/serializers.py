@@ -63,3 +63,53 @@ class LogoutResponseSerializer(serializers.Serializer):
 
 class GoogleLoginRequestSerializer(serializers.Serializer):
     id_token = serializers.CharField()
+
+# --- Registro de usuario con verificación por correo ---
+class RegisterSerializer(serializers.ModelSerializer):
+    """
+    Serializer para crear un usuario nuevo con email + password + username + nombres.
+    El usuario se crea inactivo, y luego se activa con un código OTP enviado por correo.
+    """
+
+    password = serializers.CharField(write_only=True, min_length=6)
+
+    class Meta:
+        model = User
+        fields = [
+            "username",
+            "first_name",
+            "last_name",
+            "email",
+            "password",
+        ]
+
+    def validate_email(self, value):
+        value = value.lower().strip()
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Ya existe un usuario con este correo.")
+        return value
+
+    def validate_username(self, value: Optional[str]):
+        # Como tú dijiste, el username es solo “nombre visible”
+        # y NO hace falta que sea único, así que solo lo limpiamos un poco.
+        if value:
+            value = value.strip()
+        return value
+
+    def create(self, validated_data):
+        # Extraemos y limpiamos email
+        email = validated_data.pop("email").lower().strip()
+
+        password = validated_data.pop("password")
+
+        # Crear usuario inactivo
+        user = User(
+            email=email,
+            **validated_data  # username, first_name, last_name
+        )
+        user.set_password(password)
+        user.is_active = False
+        user.auth_provider = "email"
+        user.save()
+
+        return user
