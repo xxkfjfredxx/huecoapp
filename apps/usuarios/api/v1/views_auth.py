@@ -125,7 +125,7 @@ class RegisterView(APIView):
             code_hash=code_hash,
             expires_at=expires_at,
         )
-
+ 
         # --- Enviar correo con HTML OTP ---
         from django.template.loader import render_to_string
         from django.core.mail import EmailMultiAlternatives

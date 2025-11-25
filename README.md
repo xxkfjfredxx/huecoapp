@@ -93,7 +93,9 @@ python manage.py migrate
 ### 8️⃣ (Opcional) Crea un superusuario
 ```bash
 python manage.py createsuperuser
+python manage.py runserver 0.0.0.0:8000
 ```
+
 
 ---
 

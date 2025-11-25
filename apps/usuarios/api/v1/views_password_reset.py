@@ -33,18 +33,40 @@ class PasswordForgotView(APIView):
 
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         token = token_generator.make_token(user)
-        deep_link = f"huecoapp://reset-password?uid={uid}&token={token}"
+        data = f"{uid}__SEP__{token}"
+        deep_link = f"huecoapp://reset-password?data={data}"
 
-        send_mail(
-            subject="Recupera tu contraseña - HuecoApp",
-            message=f"Hola {user.first_name or 'usuario'},\n\nUsa este enlace para restablecer tu contraseña:\n{deep_link}\n\nSi no solicitaste esto, ignora este correo.",
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-            fail_silently=False,
+        # ----------- NUEVO: CORREO HTML BONITO Y CLICKEABLE -----------
+        from django.template.loader import render_to_string
+        from django.core.mail import EmailMultiAlternatives
+        from django.conf import settings
+
+        subject = "Recupera tu contraseña - HuecoApp"
+        from_email = settings.DEFAULT_FROM_EMAIL
+
+        html_content = render_to_string(
+            "email_reset_password.html",
+            {"USER": user, "LINK": deep_link}
         )
 
-        return Response({"detail": "Correo enviado si el usuario existe"}, status=200)
+        text_content = (
+            f"Hola {user.first_name or 'usuario'},\n\n"
+            f"Usa este enlace para restablecer tu contraseña:\n{deep_link}\n\n"
+            f"Si no solicitaste esto, ignora este correo."
+        )
 
+        email_message = EmailMultiAlternatives(
+            subject=subject,
+            body=text_content,  # Fallback texto plano
+            from_email=from_email,
+            to=[user.email],
+        )
+
+        email_message.attach_alternative(html_content, "text/html")
+        email_message.send()
+        # ----------- FIN CORREO HTML -----------
+
+        return Response({"detail": "Correo enviado si el usuario existe"}, status=200)
 
 class PasswordResetConfirmView(APIView):
     """
