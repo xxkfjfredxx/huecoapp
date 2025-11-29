@@ -4,7 +4,7 @@ from django.urls import path
 
 # Importa tus ViewSets y la función summary
 from apps.usuarios.api.v1.views import UserViewSet
-from apps.huecos.views import HuecoViewSet, ConfirmacionViewSet, ComentarioViewSet, PuntosUsuarioViewSet,ValidacionHuecoViewSet,HuecosCercanosViewSet
+from apps.huecos.views import HuecoViewSet,HuecosHomeView, ConfirmacionViewSet, ComentarioViewSet, PuntosUsuarioViewSet,ValidacionHuecoViewSet,HuecosCercanosViewSet
 
 router = DefaultRouter()
 router.register(r"users", UserViewSet)

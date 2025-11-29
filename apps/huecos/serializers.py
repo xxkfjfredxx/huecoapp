@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Hueco, HistorialHueco, Confirmacion, Comentario, PuntosUsuario, ValidacionHueco
+from .models import Hueco, HistorialHueco, Confirmacion, Comentario, PuntosUsuario, ValidacionHueco,Suscripcion
 
 
 class ComentarioSerializer(serializers.ModelSerializer):
@@ -11,20 +11,33 @@ class ComentarioSerializer(serializers.ModelSerializer):
 
 
 class HuecoSerializer(serializers.ModelSerializer):
+    usuario = serializers.PrimaryKeyRelatedField(read_only=True)
     usuario_nombre = serializers.CharField(source='usuario.username', read_only=True)
     comentarios = ComentarioSerializer(many=True, read_only=True)
     confirmaciones_count = serializers.IntegerField(source='confirmaciones.count', read_only=True)
-    distancia_m = serializers.FloatField(read_only=True, help_text="Distancia al usuario en metros")
+    distancia_m = serializers.FloatField(read_only=True)
 
     class Meta:
         model = Hueco
         fields = [
-            'id', 'usuario', 'usuario_nombre', 'descripcion',
-            'latitud', 'longitud', 'direccion', 'imagen',
-            'estado', 'verificado', 'fecha_reporte', 'fecha_actualizacion',
-            'comentarios', 'confirmaciones_count'
+            'id',
+            'usuario',
+            'usuario_nombre',
+            'ciudad',
+            'descripcion',
+            'latitud',
+            'longitud',
+            'estado',
+            'fecha_reporte',
+            'fecha_actualizacion',
+            'numero_ciclos',
+            'validaciones_positivas',
+            'validaciones_negativas',
+            'imagen',
+            'comentarios',
+            'confirmaciones_count',
+            'distancia_m',
         ]
-
 
 class ConfirmacionSerializer(serializers.ModelSerializer):
     usuario_nombre = serializers.CharField(source='usuario.username', read_only=True)
@@ -74,3 +87,9 @@ class ValidacionHuecoSerializer(serializers.ModelSerializer):
         if user and ValidacionHueco.objects.filter(hueco=data['hueco'], usuario=user).exists():
             raise serializers.ValidationError("Ya has validado este hueco.")
         return data
+
+
+class SuscripcionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Suscripcion
+        fields = ['id', 'usuario', 'hueco', 'fecha', 'status']

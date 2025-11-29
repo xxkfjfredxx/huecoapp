@@ -4,12 +4,13 @@ from django.contrib.auth.models import AbstractUser
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from apps.utils.mixins import AuditMixin
+from apps.core.models import BaseStatusModel
 from django.utils import timezone
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 
-class User(AuditMixin, AbstractUser):
+class User(AuditMixin, BaseStatusModel, AbstractUser):
     email = models.EmailField(_('email address'), max_length=254, unique=True)
     token_version = models.PositiveIntegerField(default=1)
     username = models.CharField(

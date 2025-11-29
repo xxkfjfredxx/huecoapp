@@ -5,6 +5,11 @@ from django.db import models
 from django.utils.timezone import now
 from rest_framework.pagination import LimitOffsetPagination
 from django.core.cache import cache
+from rest_framework.decorators import action
+from rest_framework.views import APIView
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from django.db.models import Q
+
 
 from .models import (
     Hueco, Confirmacion, Comentario,
@@ -29,7 +34,7 @@ class HuecoViewSet(viewsets.ModelViewSet):
     - Asigna puntos y registra historial automáticamente
     - Limita a 20 reportes diarios por usuario
     """
-    queryset = Hueco.objects.all().order_by('-fecha_reporte')
+    queryset = Hueco.objects.filter(status=1, is_deleted=False).order_by('-fecha_reporte')
     serializer_class = HuecoSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
 
@@ -79,7 +84,9 @@ class HuecoViewSet(viewsets.ModelViewSet):
             return hueco_existente
 
         # 4️⃣ Crear nuevo hueco
-        hueco = serializer.save(usuario=user)
+        hueco = serializer.save(usuario=user, created_by=user)
+        hueco.status = 1
+        hueco.save(update_fields=['status'])
         registrar_puntos(user, 10, "reporte", f"Nuevo reporte de hueco #{hueco.id}")
 
         HistorialHueco.objects.create(
@@ -89,6 +96,38 @@ class HuecoViewSet(viewsets.ModelViewSet):
         )
 
         return hueco
+
+    @action(detail=True, methods=['post'], url_path='follow')
+    def follow(self, request, pk=None):
+        hueco = self.get_object()
+        user = request.user
+
+        sus, created = Suscripcion.objects.get_or_create(
+            usuario=user,
+            hueco=hueco,
+            defaults={'status': 1}
+        )
+
+        if not created and sus.status == 1:
+            return Response({"detail": "Ya sigues este hueco."}, status=status.HTTP_200_OK)
+
+        sus.status = 1
+        sus.save(update_fields=['status'])
+
+        return Response({"detail": "Hueco seguido correctamente."})
+
+    @action(detail=True, methods=['post'], url_path='unfollow')
+    def unfollow(self, request, pk=None):
+        hueco = self.get_object()
+        user = request.user
+
+        try:
+            sus = Suscripcion.objects.get(usuario=user, hueco=hueco)
+            sus.status = 0
+            sus.save(update_fields=['status'])
+            return Response({"detail": "Has dejado de seguir este hueco."})
+        except Suscripcion.DoesNotExist:
+            return Response({"detail": "No sigues este hueco."}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class ConfirmacionViewSet(viewsets.ModelViewSet):
@@ -203,3 +242,31 @@ class HuecosCercanosViewSet(viewsets.ReadOnlyModelViewSet):
 
         cache.set(cache_key, queryset, 300)
         return queryset
+
+
+class HuecosHomeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+
+        # 1) Mis reportes: creados o con historial (participación)
+        mis_reportes = Hueco.objects.filter(
+            status=1
+        ).filter(
+            Q(usuario=user) |
+            Q(historial__usuario=user)
+        ).distinct()
+
+        # 2) Seguidos
+        seguidos = Hueco.objects.filter(
+            status=1,
+            suscripciones__usuario=user,
+            suscripciones__status=1,
+        ).distinct()
+
+        data = {
+            "mis_reportes": HuecoSerializer(mis_reportes, many=True).data,
+            "seguidos": HuecoSerializer(seguidos, many=True).data,
+        }
+        return Response(data)

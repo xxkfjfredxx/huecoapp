@@ -1,9 +1,11 @@
 # apps/huecos/models.py
 from django.db import models
+from apps.core.models import BaseStatusModel
 from django.conf import settings
-
+from apps.utils.mixins import AuditMixin
 from apps.usuarios.models import User
-class Hueco(models.Model):
+
+class Hueco(AuditMixin, BaseStatusModel):
     ESTADOS = [
         ('pendiente_validacion', 'Pendiente de validación'),
         ('activo', 'Activo'),
@@ -22,6 +24,7 @@ class Hueco(models.Model):
     numero_ciclos = models.IntegerField(default=0)
     validaciones_positivas = models.IntegerField(default=0)
     validaciones_negativas = models.IntegerField(default=0)
+    imagen = models.ImageField(upload_to="huecos/", null=True, blank=True)
 
     def evaluar_validaciones(self):
         """
@@ -86,7 +89,7 @@ class Hueco(models.Model):
         return f"Hueco #{self.id} ({self.estado})"
 
 
-class HistorialHueco(models.Model):
+class HistorialHueco(AuditMixin):
     hueco = models.ForeignKey(Hueco, on_delete=models.CASCADE, related_name="historial")
     usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     accion = models.CharField(max_length=100)  # ej: "creado", "marcado como reparado", "confirmado"
@@ -97,7 +100,7 @@ class HistorialHueco(models.Model):
         return f"{self.accion} por {self.usuario} en {self.fecha}"
 
 
-class Confirmacion(models.Model):
+class Confirmacion(AuditMixin, BaseStatusModel):
     hueco = models.ForeignKey(Hueco, on_delete=models.CASCADE, related_name="confirmaciones")
     usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     confirmado = models.BooleanField()  # True = sigue, False = reparado
@@ -110,7 +113,7 @@ class Confirmacion(models.Model):
         return f"{self.usuario} confirmó hueco {self.hueco.id}"
 
 
-class Comentario(models.Model):
+class Comentario(AuditMixin, BaseStatusModel):
     hueco = models.ForeignKey(Hueco, on_delete=models.CASCADE, related_name="comentarios")
     usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     texto = models.TextField()
@@ -121,7 +124,7 @@ class Comentario(models.Model):
         return f"Comentario de {self.usuario} en Hueco {self.hueco.id}"
 
 
-class PuntosUsuario(models.Model):
+class PuntosUsuario(AuditMixin):
     TIPOS = [
         ("reporte", "Reporte creado"),
         ("verificacion", "Reporte verificado"),
@@ -167,7 +170,7 @@ class PuntosUsuario(models.Model):
             reputacion.save()
 
 
-class ValidacionHueco(models.Model):
+class ValidacionHueco(AuditMixin, BaseStatusModel):
     hueco = models.ForeignKey(Hueco, on_delete=models.CASCADE, related_name="validaciones")
     usuario = models.ForeignKey(User, on_delete=models.CASCADE)
     voto = models.BooleanField(help_text="True = confirma que el hueco existe, False = no existe")
@@ -180,7 +183,7 @@ class ValidacionHueco(models.Model):
         return f"Validación de {self.usuario} sobre hueco #{self.hueco.id}"
     
 
-class DispositivoUsuario(models.Model):
+class DispositivoUsuario(BaseStatusModel):
     """
     Guarda el token FCM de cada dispositivo móvil.
     Un usuario puede tener varios dispositivos.
@@ -196,3 +199,23 @@ class DispositivoUsuario(models.Model):
 
     def __str__(self):
         return f"{self.usuario.username} - {self.plataforma}"
+
+
+class Suscripcion(AuditMixin, BaseStatusModel):
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='suscripciones'
+    )
+    hueco = models.ForeignKey(
+        'Hueco',  # referencia en string porque Hueco está en el mismo archivo
+        on_delete=models.CASCADE,
+        related_name='suscripciones'
+    )
+    fecha = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('usuario', 'hueco')
+
+    def __str__(self):
+        return f"{self.usuario} sigue hueco {self.hueco_id}"

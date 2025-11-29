@@ -156,7 +156,6 @@ REST_FRAMEWORK = {
     ] + (["rest_framework.authentication.SessionAuthentication"] if DEBUG else []),
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
-        "apps.utils.permissions.CSRFDobleSubmitMutations",
     ],
     "DEFAULT_PAGINATION_CLASS": "apps.core.pagination.DefaultPagination",
     "DEFAULT_FILTER_BACKENDS": ["django_filters.rest_framework.DjangoFilterBackend"],

@@ -1,18 +1,16 @@
-from django.db import transaction
+from django.db import transaction 
 
 @transaction.atomic
-def registrar_puntos(usuario, cantidad, tipo, descripcion):
+def registrar_puntos(usuario, cantidad, tipo, descripcion=""):
     """
-    Crea registro de puntos y actualiza reputación total de forma atómica.
+    Registra puntos y deja que el modelo PuntosUsuario actualice la reputación
+    automáticamente en ReputacionUsuario.
     """
-    from apps.huecos.models import PuntosUsuario  # import local para evitar ciclo
+    from apps.huecos.models import PuntosUsuario  # evitar import circular
 
-    PuntosUsuario.objects.create(
+    return PuntosUsuario.objects.create(
         usuario=usuario,
         puntos=cantidad,
         tipo=tipo,
         descripcion=descripcion,
     )
-
-    usuario.reputacion_total = (usuario.reputacion_total or 0) + cantidad
-    usuario.save(update_fields=["reputacion_total"])
