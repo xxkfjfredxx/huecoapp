@@ -9,6 +9,7 @@ from rest_framework.decorators import action
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.db.models import Q
+from rest_framework.generics import ListAPIView
 
 
 from .models import (
@@ -36,7 +37,7 @@ class HuecoViewSet(viewsets.ModelViewSet):
     """
     queryset = Hueco.objects.filter(status=1, is_deleted=False).order_by('-fecha_reporte')
     serializer_class = HuecoSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -133,7 +134,7 @@ class HuecoViewSet(viewsets.ModelViewSet):
 class ConfirmacionViewSet(viewsets.ModelViewSet):
     queryset = Confirmacion.objects.all().order_by('-fecha')
     serializer_class = ConfirmacionSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
         confirmacion = serializer.save(usuario=self.request.user)
@@ -149,7 +150,7 @@ class ConfirmacionViewSet(viewsets.ModelViewSet):
 class ComentarioViewSet(viewsets.ModelViewSet):
     queryset = Comentario.objects.all().order_by('-fecha')
     serializer_class = ComentarioSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
         comentario = serializer.save(usuario=self.request.user)
@@ -205,7 +206,7 @@ class HuecosCercanosViewSet(viewsets.ReadOnlyModelViewSet):
       /api/huecos/cercanos/?lat=6.25&lon=-75.56&radio=1000&ciudad=Medellín
     """
     serializer_class = HuecoSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAuthenticated]
     pagination_class = LimitOffsetPagination
 
     def get_queryset(self):
@@ -243,30 +244,31 @@ class HuecosCercanosViewSet(viewsets.ReadOnlyModelViewSet):
         cache.set(cache_key, queryset, 300)
         return queryset
 
-
-class HuecosHomeView(APIView):
+class MisReportesListView(ListAPIView):
+    serializer_class = HuecoSerializer
     permission_classes = [IsAuthenticated]
 
-    def get(self, request):
-        user = request.user
+    def get_queryset(self):
+        user = self.request.user
+        return (
+            Hueco.objects.filter(status=1)
+            .filter(Q(usuario=user) | Q(historial__usuario=user))
+            .distinct()
+            .order_by("-fecha_reporte")
+        )
 
-        # 1) Mis reportes: creados o con historial (participación)
-        mis_reportes = Hueco.objects.filter(
-            status=1
-        ).filter(
-            Q(usuario=user) |
-            Q(historial__usuario=user)
-        ).distinct()
+class SeguidosListView(ListAPIView):
+    serializer_class = HuecoSerializer
+    permission_classes = [IsAuthenticated]
 
-        # 2) Seguidos
-        seguidos = Hueco.objects.filter(
-            status=1,
-            suscripciones__usuario=user,
-            suscripciones__status=1,
-        ).distinct()
-
-        data = {
-            "mis_reportes": HuecoSerializer(mis_reportes, many=True).data,
-            "seguidos": HuecoSerializer(seguidos, many=True).data,
-        }
-        return Response(data)
+    def get_queryset(self):
+        user = self.request.user
+        return (
+            Hueco.objects.filter(
+                status=1,
+                suscripciones__usuario=user,
+                suscripciones__status=1,
+            )
+            .distinct()
+            .order_by("-fecha_reporte")
+        )

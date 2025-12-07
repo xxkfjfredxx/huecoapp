@@ -25,7 +25,57 @@ class Hueco(AuditMixin, BaseStatusModel):
     validaciones_positivas = models.IntegerField(default=0)
     validaciones_negativas = models.IntegerField(default=0)
     imagen = models.ImageField(upload_to="huecos/", null=True, blank=True)
+    imagen_preview = models.ImageField(upload_to="huecos/preview/", null=True, blank=True)
 
+    def save(self, *args, **kwargs):
+        procesar_imagenes = False
+        if self.pk is None: 
+            procesar_imagenes = True
+        # 1. Guardar primero el objeto para obtener el ID (self.pk).
+        super().save(*args, **kwargs)
+        # 2. Procesamiento de Imagen: Solo si es un nuevo reporte Y se ha subido una imagen
+        if procesar_imagenes and self.imagen:
+            try:
+                # Abrimos el archivo subido, nos aseguramos que el puntero esté al inicio
+                original_file = self.imagen.file
+                original_file.seek(0) 
+                img = Image.open(original_file)
+            except Exception:
+                # Manejo de errores si el archivo no se puede abrir
+                return 
+
+            DETALLE_SIZE = (1080, 1080)
+            PREVIEW_SIZE = (300, 300)
+            QUALITY = 75
+            
+            # --- 2.1. Optimización para Detalle (Max 1080x1080, WebP/75%) ---
+            img_detalle = img.copy() 
+            
+            # Redimensiona SOLAMENTE si es más grande
+            if img_detalle.width > DETALLE_SIZE[0] or img_detalle.height > DETALLE_SIZE[1]:
+                img_detalle.thumbnail(DETALLE_SIZE) 
+            
+            # Siempre guarda la versión de detalle (convertida a WebP/75%)
+            buffer_detalle = BytesIO()
+            img_detalle.save(buffer_detalle, format='WEBP', quality=QUALITY) 
+            self.imagen.save(f'{self.pk}_detalle.webp', ContentFile(buffer_detalle.getvalue()), save=False)
+            
+            # --- 2.2. Generación del Preview (Thumbnail) ---
+            # Usamos el objeto original para generar el thumbnail (300x300, WebP/75%)
+            img_preview = img.copy()
+            img_preview.thumbnail(PREVIEW_SIZE) # Reducir al tamaño del thumbnail
+
+            thumb_io = BytesIO()
+            img_preview.save(thumb_io, format='WEBP', quality=QUALITY) 
+
+            # Guardar el thumbnail en el campo 'imagen_preview'
+            thumb_filename = f'{self.pk}_preview.webp'
+            self.imagen_preview.save(thumb_filename, ContentFile(thumb_io.getvalue()), save=False)
+
+            # 3. Guardar las rutas actualizadas en la BD
+            # ESTE BLOQUE DEBE ESTAR AL FINAL DEL PROCESAMIENTO DE IMAGEN
+            super().save(update_fields=['imagen', 'imagen_preview'])     
+    
     def evaluar_validaciones(self):
         """
         Evalúa si el hueco debe pasar a 'activo' o 'rechazado' según las validaciones,
