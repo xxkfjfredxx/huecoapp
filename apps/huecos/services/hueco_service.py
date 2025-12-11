@@ -6,7 +6,11 @@ def get_huecos_cercanos(latitud, longitud, radio_metros=50):
     Devuelve huecos cercanos según lat/lon y radio.
     Retorna lista de tuplas: (Hueco, distancia_en_metros)
     """
-    huecos = Hueco.objects.filter(estado__in=['cerrado', 'reabierto', 'activo'])
+    huecos = Hueco.objects.filter(
+        estado__in=['pendiente_validacion', 'cerrado', 'reabierto', 'activo'],
+        status=1,
+        is_deleted=False
+    )
     cercanos = []
     for h in huecos:
         if not h.latitud or not h.longitud:

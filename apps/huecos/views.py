@@ -201,48 +201,82 @@ class ValidacionHuecoViewSet(viewsets.ModelViewSet):
 
 class HuecosCercanosViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    Endpoint para listar huecos cercanos según ubicación y/o ciudad, con caché.
-    Ejemplo:
-      /api/huecos/cercanos/?lat=6.25&lon=-75.56&radio=1000&ciudad=Medellín
+    Lista huecos cercanos por ubicación o ciudad.
+    Mantiene queryset válido para DRF y agrega distancia ordenada.
     """
+    queryset = Hueco.objects.all()
     serializer_class = HuecoSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = LimitOffsetPagination
 
     def get_queryset(self):
-        lat = self.request.query_params.get('lat')
-        lon = self.request.query_params.get('lon')
-        radio = float(self.request.query_params.get('radio', 1000))
-        ciudad = self.request.query_params.get('ciudad')
-        cache_key = f"huecos_{lat}_{lon}_{radio}_{ciudad}"
+        request = self.request
+        lat = request.query_params.get('lat')
+        lon = request.query_params.get('lon')
+        ciudad = request.query_params.get('ciudad')
+        radio_param = request.query_params.get('radio', 1000)
 
-        cached_data = cache.get(cache_key)
-        if cached_data:
-            return cached_data
+        # --- Validación de radio ---
+        try:
+            radio = float(radio_param)
+        except ValueError:
+            radio = 1000
 
-        queryset = Hueco.objects.filter(
-            estado__in=['activo', 'reabierto', 'pendiente_validacion']
+        # --- Clave de cache ---
+        cache_key = f"hc_{lat}_{lon}_{radio}_{ciudad}"
+        cached_qs = cache.get(cache_key)
+        if cached_qs is not None:
+            return cached_qs
+
+        # --- Query base (ESTADOS que quieres incluir) ---
+        qs = Hueco.objects.filter(
+            estado__in=['pendiente_validacion', 'cerrado', 'reabierto', 'activo'],
+            status=1,
+            is_deleted=False
         )
 
+        # --- Filtrar por ciudad (si aplica) ---
         if ciudad:
-            queryset = queryset.filter(descripcion__icontains=ciudad)
+            qs = qs.filter(descripcion__icontains=ciudad)
 
-        resultados = []
+        # --- Si hay lat/lon, calcular distancias ---
         if lat and lon:
             try:
-                lat, lon = float(lat), float(lon)
-                cercanos = get_huecos_cercanos(lat, lon, radio_metros=radio)
-                resultados = [h for h, _ in cercanos]
-                for h, distancia in cercanos:
-                    h.distancia_m = round(distancia, 2)
-                queryset = resultados
-            except ValueError:
-                pass
-        else:
-            queryset = queryset.order_by('-fecha_reporte')
+                lat = float(lat)
+                lon = float(lon)
 
-        cache.set(cache_key, queryset, 300)
-        return queryset
+                # Obtener lista de huecos cercanos desde el servicio
+                cercanos = get_huecos_cercanos(lat, lon, radio_metros=radio)
+
+                # Extraer IDS en orden por distancia
+                ids_en_orden = [h.id for h, _ in cercanos]
+
+                if not ids_en_orden:
+                    cache.set(cache_key, Hueco.objects.none(), 300)
+                    return Hueco.objects.none()
+
+                # Convertir la lista ordenada en queryset ordenado manualmente
+                preserved_order = models.Case(
+                    *[models.When(id=id_h, then=pos) for pos, id_h in enumerate(ids_en_orden)]
+                )
+
+                qs = qs.filter(id__in=ids_en_orden).annotate(
+                    distancia_m=models.Case(
+                        *[
+                            models.When(id=h.id, then=round(dist, 2))
+                            for h, dist in cercanos
+                        ],
+                        default=None,
+                        output_field=models.FloatField()
+                    )
+                ).order_by(preserved_order)
+
+            except ValueError:
+                pass  # lat/lon inválidos → se ignora distancia
+
+        # Guardar en caché (queryset, NO lista)
+        cache.set(cache_key, qs, 300)
+        return qs
 
 class MisReportesListView(ListAPIView):
     serializer_class = HuecoSerializer

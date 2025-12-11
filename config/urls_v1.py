@@ -17,7 +17,7 @@ from apps.huecos.views import (
 router = DefaultRouter()
 router.register(r"users", UserViewSet)
 router.register(r'huecos', HuecoViewSet, basename='hueco')
-router.register(r'huecos/cercanos', HuecosCercanosViewSet, basename='huecos-cercanos')
+router.register(r'huecoscercanos', HuecosCercanosViewSet, basename='huecos-cercanos')
 router.register(r"validaciones", ValidacionHuecoViewSet)
 router.register(r'confirmaciones', ConfirmacionViewSet, basename='confirmacion')
 router.register(r'comentarios', ComentarioViewSet, basename='comentario')

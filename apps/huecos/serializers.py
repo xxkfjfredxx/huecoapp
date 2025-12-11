@@ -16,6 +16,8 @@ class HuecoSerializer(serializers.ModelSerializer):
     comentarios = ComentarioSerializer(many=True, read_only=True)
     confirmaciones_count = serializers.IntegerField(source='confirmaciones.count', read_only=True)
     distancia_m = serializers.FloatField(read_only=True)
+    validado_usuario = serializers.SerializerMethodField()
+    faltan_validaciones = serializers.SerializerMethodField()
 
     class Meta:
         model = Hueco
@@ -37,7 +39,25 @@ class HuecoSerializer(serializers.ModelSerializer):
             'comentarios',
             'confirmaciones_count',
             'distancia_m',
+            "validado_usuario",
+            "faltan_validaciones",
         ]
+
+    def get_validado_usuario(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+        return ValidacionHueco.objects.filter(
+            hueco=obj,
+            usuario=request.user
+        ).exists()
+
+    def get_faltan_validaciones(self, obj):
+        # Solo aplica mientras está pendiente de validación
+        if obj.estado != "pendiente_validacion":
+            return 0
+        faltan = 5 - (obj.validaciones_positivas or 0)  # tu umbral es 5
+        return max(faltan, 0)
 
 class ConfirmacionSerializer(serializers.ModelSerializer):
     usuario_nombre = serializers.CharField(source='usuario.username', read_only=True)
