@@ -13,6 +13,7 @@ from django.dispatch import receiver
 class User(AuditMixin, BaseStatusModel, AbstractUser):
     email = models.EmailField(_('email address'), max_length=254, unique=True)
     token_version = models.PositiveIntegerField(default=1)
+    avatar = models.ImageField(upload_to="avatars/", null=True, blank=True)
     username = models.CharField(
         _('username'),
         max_length=150,

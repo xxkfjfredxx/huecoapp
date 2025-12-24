@@ -3,11 +3,25 @@ from ...models import User
 from typing import Optional
 from drf_spectacular.utils import extend_schema_field
 from drf_spectacular.types import OpenApiTypes
-
-
+from apps.huecos.models import (
+    PuntosUsuario,
+    Hueco,
+    Confirmacion,
+    Comentario,
+    ValidacionHueco,
+    Suscripcion,
+)
+from django.db.models import Sum
+ 
 class UserSerializer(serializers.ModelSerializer):
     employee_id = serializers.SerializerMethodField()
     is_deleted = serializers.BooleanField(read_only=True)
+    foto_perfil = serializers.ImageField(source="avatar", read_only=True)
+    # 👇 nuevos campos
+    puntos_totales = serializers.SerializerMethodField()
+    detalle_puntos = serializers.SerializerMethodField()
+    reputacion = serializers.SerializerMethodField()
+    stats = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -19,10 +33,91 @@ class UserSerializer(serializers.ModelSerializer):
             "password",
             "is_deleted",
             "is_active",
+            "puntos_totales",
+            "detalle_puntos",
+            "reputacion",
+            "stats",
+            "foto_perfil",
         ]
         extra_kwargs = {
             "username": {"validators": []},
             "password": {"write_only": True, "required": False},
+        }
+
+    # ---- PUNTOS TOTALES ----
+    def get_puntos_totales(self, obj: User) -> int:
+        rep = getattr(obj, "reputacion", None)
+        if rep:
+            return rep.puntaje_total
+        total = (
+            PuntosUsuario.objects
+            .filter(usuario=obj, is_deleted=False)
+            .aggregate(total=Sum("puntos"))
+            .get("total") or 0
+        )
+        return total
+
+    # ---- DETALLE PUNTOS POR TIPO ----
+    def get_detalle_puntos(self, obj: User):
+        qs = (
+            PuntosUsuario.objects
+            .filter(usuario=obj, is_deleted=False)
+            .values("tipo")
+            .annotate(total=Sum("puntos"))
+        )
+        return {row["tipo"]: row["total"] for row in qs}
+
+    # ---- REPUTACIÓN ----
+    def get_reputacion(self, obj: User):
+        rep = getattr(obj, "reputacion", None)
+        if not rep:
+            return {
+                "nivel": "nuevo",
+                "puntaje_total": 0,
+            }
+        return {
+            "nivel": rep.nivel_confianza,
+            "puntaje_total": rep.puntaje_total,
+        }
+
+    # ---- STATS DE ACTIVIDAD ----
+    def get_stats(self, obj: User):
+        reportes = Hueco.objects.filter(
+            usuario=obj,
+            status=1,
+            is_deleted=False
+        ).count()
+
+        seguidos = Suscripcion.objects.filter(
+            usuario=obj,
+            status=1,
+            is_deleted=False
+        ).count()
+
+        validaciones = ValidacionHueco.objects.filter(
+            usuario=obj,
+            status=1,
+            is_deleted=False
+        ).count()
+
+        confirmaciones = Confirmacion.objects.filter(
+            usuario=obj,
+            status=1,
+            is_deleted=False
+        ).count()
+
+        comentarios = Comentario.objects.filter(
+            usuario=obj,
+            status=1,
+            is_deleted=False
+        ).count()
+
+        return {
+            "reportes": reportes,
+            "huecos_seguidos": seguidos,
+            "validaciones_realizadas": validaciones,
+            "confirmaciones_realizadas": confirmaciones,
+            "comentarios_realizados": comentarios,
         }
 
     def get_employee_id(self, obj):
