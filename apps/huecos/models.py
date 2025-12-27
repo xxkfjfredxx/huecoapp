@@ -27,6 +27,15 @@ class Hueco(AuditMixin, BaseStatusModel):
     imagen = models.ImageField(upload_to="huecos/", null=True, blank=True)
     imagen_preview = models.ImageField(upload_to="huecos/preview/", null=True, blank=True)
 
+    # Nuevos campos
+    vistas = models.IntegerField(default=0)
+    GRAVEDAD_CHOICES = [
+        ('baja', 'Baja'),
+        ('media', 'Media'),
+        ('alta', 'Alta'),
+    ]
+    gravedad = models.CharField(max_length=10, choices=GRAVEDAD_CHOICES, default='media')
+
     def save(self, *args, **kwargs):
         procesar_imagenes = False
         if self.pk is None: 

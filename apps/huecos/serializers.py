@@ -13,11 +13,14 @@ class ComentarioSerializer(serializers.ModelSerializer):
 class HuecoSerializer(serializers.ModelSerializer):
     usuario = serializers.PrimaryKeyRelatedField(read_only=True)
     usuario_nombre = serializers.CharField(source='usuario.username', read_only=True)
-    comentarios = ComentarioSerializer(many=True, read_only=True)
+    usuario_nombre = serializers.CharField(source='usuario.username', read_only=True)
+    comentarios = serializers.SerializerMethodField()
     confirmaciones_count = serializers.IntegerField(source='confirmaciones.count', read_only=True)
     distancia_m = serializers.FloatField(read_only=True)
     validado_usuario = serializers.SerializerMethodField()
     faltan_validaciones = serializers.SerializerMethodField()
+    is_followed = serializers.SerializerMethodField()
+    mi_confirmacion = serializers.SerializerMethodField()
 
     class Meta:
         model = Hueco
@@ -35,13 +38,38 @@ class HuecoSerializer(serializers.ModelSerializer):
             'numero_ciclos',
             'validaciones_positivas',
             'validaciones_negativas',
+            'gravedad',
+            'vistas',
             'imagen',
             'comentarios',
             'confirmaciones_count',
             'distancia_m',
             "validado_usuario",
+            "mi_confirmacion",  # Nuevo
             "faltan_validaciones",
+            "is_followed",      # Nuevo
         ]
+
+    def get_comentarios(self, obj):
+        # Retorna solo los 3 ultimos
+        comentarios = obj.comentarios.all().order_by('-fecha')[:3]
+        return ComentarioSerializer(comentarios, many=True).data
+
+    def get_is_followed(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return False
+        return Suscripcion.objects.filter(hueco=obj, usuario=request.user, status=1).exists()
+
+    def get_mi_confirmacion(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user.is_authenticated:
+            return None
+        # Buscar confirmacion existente (voto)
+        confirmacion = Confirmacion.objects.filter(hueco=obj, usuario=request.user).first()
+        if confirmacion:
+            return ConfirmacionSerializer(confirmacion).data
+        return None
 
     def get_validado_usuario(self, obj):
         request = self.context.get("request")

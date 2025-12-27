@@ -51,9 +51,9 @@ if not firebase_admin._apps:
     try:
         cred = credentials.Certificate(FIREBASE_CREDENTIALS_PATH)
         firebase_admin.initialize_app(cred)
-        print("✅ Firebase Admin inicializado correctamente.")
+        print("Firebase Admin inicializado correctamente.")
     except Exception as e:
-        print(f"⚠️ No se pudo inicializar Firebase Admin: {e}")
+        print(f"No se pudo inicializar Firebase Admin: {e}")
 # =========================
 # Apps
 # =========================

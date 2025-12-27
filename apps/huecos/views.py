@@ -39,6 +39,14 @@ class HuecoViewSet(viewsets.ModelViewSet):
     serializer_class = HuecoSerializer
     permission_classes = [IsAuthenticated]
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        # Incrementar vistas
+        instance.vistas += 1
+        instance.save(update_fields=['vistas'])
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
     def perform_create(self, serializer):
         user = self.request.user
         hoy = now().date()
@@ -151,6 +159,7 @@ class ComentarioViewSet(viewsets.ModelViewSet):
     queryset = Comentario.objects.all().order_by('-fecha')
     serializer_class = ComentarioSerializer
     permission_classes = [IsAuthenticated]
+    filterset_fields = ['hueco']
 
     def perform_create(self, serializer):
         comentario = serializer.save(usuario=self.request.user)
