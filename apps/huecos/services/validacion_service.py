@@ -32,12 +32,14 @@ def procesar_validacion(hueco, usuario, voto):
         accion=f"Validación {'positiva' if voto else 'negativa'} de {usuario.username}"
     )
 
-    # Evaluar umbrales
+    # Umbrales desde config
+    from apps.huecos.config import UMBRAL_VALIDACION_POSITIVA, UMBRAL_VALIDACION_NEGATIVA
+
     positivas = hueco.validaciones_positivas
     negativas = hueco.validaciones_negativas
     autor = hueco.usuario
 
-    if positivas >= 5 and hueco.estado == "pendiente_validacion":
+    if positivas >= UMBRAL_VALIDACION_POSITIVA and hueco.estado == "pendiente_validacion":
         hueco.estado = "activo"
         hueco.save()
 
@@ -45,7 +47,7 @@ def procesar_validacion(hueco, usuario, voto):
         for v in hueco.validaciones.filter(voto=True):
             registrar_puntos(v.usuario, 5, "confirmacion", f"Validación positiva del hueco #{hueco.id}")
 
-    elif negativas >= 3 and hueco.estado == "pendiente_validacion":
+    elif negativas >= UMBRAL_VALIDACION_NEGATIVA and hueco.estado == "pendiente_validacion":
         hueco.estado = "rechazado"
         hueco.save()
 

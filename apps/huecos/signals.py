@@ -33,10 +33,48 @@ def actualizar_estado_hueco(sender, instance, created, **kwargs):
     # Re-evaluar si el hueco cambia de estado
     hueco.evaluar_validaciones()
 
-    # Si el hueco fue rechazado, penalizamos al creador
     if hueco.estado == "rechazado":
         creador = hueco.usuario
         registrar_puntos(creador, -10, "reporte_falso", f"Hueco #{hueco.id} rechazado por falsedad")
         if hasattr(creador, 'reputacion'):
             creador.reputacion.puntaje_total -= 15
             creador.reputacion.actualizar_nivel()
+
+
+from .models import Confirmacion, HistorialHueco
+from .config import UMBRAL_CONFIRMACION_REPARADO
+
+@receiver(post_save, sender=Confirmacion)
+def procesar_confirmacion_estado(sender, instance, created, **kwargs):
+    """
+    Automatiza el cambio de estado a 'reparado' si suficientes usuarios lo confirman.
+    """
+    if not created:
+        return
+
+    hueco = instance.hueco
+    
+    # Solo procesamos si el hueco está activo o reabierto
+    if hueco.estado not in ['activo', 'reabierto']:
+        return
+
+    # Contar votos de "ya está reparado" (confirmado=False)
+    # y votos de "sigue ahí" (confirmado=True)
+    votos_reparado = Confirmacion.objects.filter(hueco=hueco, confirmado=False).count()
+    votos_sigue_ahi = Confirmacion.objects.filter(hueco=hueco, confirmado=True).count()
+
+    # Umbral desde config
+    if votos_reparado >= UMBRAL_CONFIRMACION_REPARADO:
+        hueco.estado = 'reparado'
+        hueco.save()
+        
+        # Registrar historial
+        HistorialHueco.objects.create(
+            hueco=hueco,
+            usuario=instance.usuario,  # El usuario que completó el umbral
+            accion="Marcado como reparado por la comunidad"
+        )
+        # Notificar al creador original (opcional, implementar luego)
+
+    # Nota: Podrías agregar lógica inversa (si muchos dicen que sigue ahí, reabrirlo si estaba en duda)
+

@@ -7,7 +7,8 @@ class ComentarioSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Comentario
-        fields = ['id', 'usuario', 'usuario_nombre', 'texto', 'imagen', 'fecha']
+        fields = ['id', 'hueco', 'usuario', 'usuario_nombre', 'texto', 'imagen', 'fecha']
+        read_only_fields = ['usuario', 'fecha']
 
 
 class HuecoSerializer(serializers.ModelSerializer):
@@ -15,6 +16,7 @@ class HuecoSerializer(serializers.ModelSerializer):
     usuario_nombre = serializers.CharField(source='usuario.username', read_only=True)
     usuario_nombre = serializers.CharField(source='usuario.username', read_only=True)
     comentarios = serializers.SerializerMethodField()
+    total_comentarios = serializers.IntegerField(source='comentarios.count', read_only=True)
     confirmaciones_count = serializers.IntegerField(source='confirmaciones.count', read_only=True)
     distancia_m = serializers.FloatField(read_only=True)
     validado_usuario = serializers.SerializerMethodField()
@@ -42,6 +44,7 @@ class HuecoSerializer(serializers.ModelSerializer):
             'vistas',
             'imagen',
             'comentarios',
+            'total_comentarios',  # Nuevo campo
             'confirmaciones_count',
             'distancia_m',
             "validado_usuario",
@@ -93,6 +96,7 @@ class ConfirmacionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Confirmacion
         fields = ['id', 'hueco', 'usuario', 'usuario_nombre', 'confirmado', 'fecha']
+        read_only_fields = ['usuario', 'fecha']
 
 
 class HistorialHuecoSerializer(serializers.ModelSerializer):

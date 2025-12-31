@@ -112,13 +112,15 @@ class Hueco(AuditMixin, BaseStatusModel):
         self.validaciones_positivas = positivas
         self.validaciones_negativas = negativas
 
-        # 🔹 Umbrales (ponderados)
-        if positivas >= 5 and self.estado == 'pendiente_validacion':
+        # 🔹 Umbrales (ponderados) con configuración global
+        from .config import UMBRAL_VALIDACION_POSITIVA, UMBRAL_VALIDACION_NEGATIVA
+        
+        if positivas >= UMBRAL_VALIDACION_POSITIVA and self.estado == 'pendiente_validacion':
             self.estado = 'activo'
             self.save()
             self.asignar_puntos_aprobacion()
 
-        elif negativas >= 3 and self.estado == 'pendiente_validacion':
+        elif negativas >= UMBRAL_VALIDACION_NEGATIVA and self.estado == 'pendiente_validacion':
             self.estado = 'rechazado'
             self.save()
             self.asignar_puntos_rechazo()

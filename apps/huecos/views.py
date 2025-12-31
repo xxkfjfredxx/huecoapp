@@ -14,7 +14,7 @@ from rest_framework.generics import ListAPIView
 
 from .models import (
     Hueco, Confirmacion, Comentario,
-    PuntosUsuario, HistorialHueco, ValidacionHueco
+    PuntosUsuario, HistorialHueco, ValidacionHueco, Suscripcion
 )
 from .serializers import (
     HuecoSerializer, ConfirmacionSerializer,
@@ -144,15 +144,34 @@ class ConfirmacionViewSet(viewsets.ModelViewSet):
     serializer_class = ConfirmacionSerializer
     permission_classes = [IsAuthenticated]
 
-    def perform_create(self, serializer):
-        confirmacion = serializer.save(usuario=self.request.user)
-        registrar_puntos(self.request.user, 2, "confirmacion", f"Confirmación del hueco #{confirmacion.hueco.id}")
+    def create(self, request, *args, **kwargs):
+        # 1. Validar datos básicos (hueco, confirmado, etc.)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        hueco = serializer.validated_data['hueco']
+        confirmado = serializer.validated_data['confirmado']
+        user = request.user
 
-        HistorialHueco.objects.create(
-            hueco=confirmacion.hueco,
-            usuario=self.request.user,
-            accion="confirmado por usuario"
+        # 2. Usar update_or_create para manejar duplicados (Upsert)
+        # Si ya existe, actualiza el valor y la fecha. Si no, lo crea.
+        obj, created = Confirmacion.objects.update_or_create(
+            hueco=hueco,
+            usuario=user,
+            defaults={'confirmado': confirmado, 'fecha': now()}
         )
+
+        # 3. Asignar puntos solo si es nuevo (evitar farmear puntos)
+        if created:
+            registrar_puntos(user, 2, "confirmacion", f"Confirmación del hueco #{hueco.id}")
+            HistorialHueco.objects.create(
+                hueco=hueco,
+                usuario=user,
+                accion="confirmado por usuario"
+            )
+            return Response(ConfirmacionSerializer(obj).data, status=status.HTTP_201_CREATED)
+        
+        return Response(ConfirmacionSerializer(obj).data, status=status.HTTP_200_OK)
 
 
 class ComentarioViewSet(viewsets.ModelViewSet):
