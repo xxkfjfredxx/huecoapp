@@ -39,16 +39,16 @@ def procesar_validacion(hueco, usuario, voto):
     negativas = hueco.validaciones_negativas
     autor = hueco.usuario
 
-    if positivas >= UMBRAL_VALIDACION_POSITIVA and hueco.estado == "pendiente_validacion":
-        hueco.estado = "activo"
+    if positivas >= UMBRAL_VALIDACION_POSITIVA and hueco.estado == hueco.EstadoHueco.PENDIENTE:
+        hueco.estado = hueco.EstadoHueco.ACTIVO
         hueco.save()
 
         registrar_puntos(autor, 10, "verificacion", f"Hueco #{hueco.id} verificado como real")
         for v in hueco.validaciones.filter(voto=True):
             registrar_puntos(v.usuario, 5, "confirmacion", f"Validación positiva del hueco #{hueco.id}")
 
-    elif negativas >= UMBRAL_VALIDACION_NEGATIVA and hueco.estado == "pendiente_validacion":
-        hueco.estado = "rechazado"
+    elif negativas >= UMBRAL_VALIDACION_NEGATIVA and hueco.estado == hueco.EstadoHueco.PENDIENTE:
+        hueco.estado = hueco.EstadoHueco.RECHAZADO
         hueco.save()
 
         registrar_puntos(autor, -15, "verificacion", f"Hueco #{hueco.id} rechazado (falso reporte)")

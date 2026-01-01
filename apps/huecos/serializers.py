@@ -95,7 +95,7 @@ class ConfirmacionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Confirmacion
-        fields = ['id', 'hueco', 'usuario', 'usuario_nombre', 'confirmado', 'fecha']
+        fields = ['id', 'hueco', 'usuario', 'usuario_nombre', 'nuevo_estado', 'fecha']
         read_only_fields = ['usuario', 'fecha']
 
 

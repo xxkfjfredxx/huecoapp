@@ -14,7 +14,8 @@ from rest_framework.generics import ListAPIView
 
 from .models import (
     Hueco, Confirmacion, Comentario,
-    PuntosUsuario, HistorialHueco, ValidacionHueco, Suscripcion
+    PuntosUsuario, HistorialHueco, ValidacionHueco, Suscripcion,
+    EstadoHueco
 )
 from .serializers import (
     HuecoSerializer, ConfirmacionSerializer,
@@ -66,7 +67,8 @@ class HuecoViewSet(viewsets.ModelViewSet):
                 lat, lon = float(lat), float(lon)
                 cercanos = get_huecos_cercanos(lat, lon, radio_metros=10)
                 for h, distancia in cercanos:
-                    if h.estado in ['cerrado', 'reabierto']:
+                    # Usar constantes numéricas
+                    if h.estado in [EstadoHueco.CERRADO, EstadoHueco.REABIERTO, EstadoHueco.REPARADO]: 
                         hueco_existente = h
                         break
             except ValueError:
@@ -74,7 +76,7 @@ class HuecoViewSet(viewsets.ModelViewSet):
 
         # 3️⃣ Reapertura si corresponde
         if hueco_existente:
-            hueco_existente.estado = 'reabierto'
+            hueco_existente.estado = EstadoHueco.REABIERTO
             hueco_existente.numero_ciclos += 1
             hueco_existente.fecha_actualizacion = now()
             hueco_existente.save()
@@ -145,29 +147,37 @@ class ConfirmacionViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        # 1. Validar datos básicos (hueco, confirmado, etc.)
+        # 1. Validar datos
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
         hueco = serializer.validated_data['hueco']
-        confirmado = serializer.validated_data['confirmado']
+        nuevo_estado = serializer.validated_data['nuevo_estado'] # Integer
         user = request.user
+        
+        # 2. Upsert con Ciclos
+        defaults = {
+            'nuevo_estado': nuevo_estado,
+            'fecha': now()
+        }
 
-        # 2. Usar update_or_create para manejar duplicados (Upsert)
-        # Si ya existe, actualiza el valor y la fecha. Si no, lo crea.
+        # El voto se asocia al ciclo actual del hueco
+        ciclo_actual = hueco.numero_ciclos
+
         obj, created = Confirmacion.objects.update_or_create(
             hueco=hueco,
             usuario=user,
-            defaults={'confirmado': confirmado, 'fecha': now()}
+            numero_ciclo=ciclo_actual,
+            defaults=defaults
         )
 
-        # 3. Asignar puntos solo si es nuevo (evitar farmear puntos)
+        # 3. Asignar puntos solo si es nuevo registro
         if created:
             registrar_puntos(user, 2, "confirmacion", f"Confirmación del hueco #{hueco.id}")
             HistorialHueco.objects.create(
                 hueco=hueco,
                 usuario=user,
-                accion="confirmado por usuario"
+                accion=f"Voto por estado: {nuevo_estado}"
             )
             return Response(ConfirmacionSerializer(obj).data, status=status.HTTP_201_CREATED)
         
@@ -257,8 +267,16 @@ class HuecosCercanosViewSet(viewsets.ReadOnlyModelViewSet):
             return cached_qs
 
         # --- Query base (ESTADOS que quieres incluir) ---
+        # --- Query base (ESTADOS que quieres incluir) ---
         qs = Hueco.objects.filter(
-            estado__in=['pendiente_validacion', 'cerrado', 'reabierto', 'activo'],
+            estado__in=[
+                EstadoHueco.PENDIENTE, 
+                EstadoHueco.CERRADO, 
+                EstadoHueco.REABIERTO, 
+                EstadoHueco.ACTIVO,
+                EstadoHueco.EN_REPARACION,
+                EstadoHueco.REPARADO
+            ],
             status=1,
             is_deleted=False
         )

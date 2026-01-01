@@ -41,40 +41,58 @@ def actualizar_estado_hueco(sender, instance, created, **kwargs):
             creador.reputacion.actualizar_nivel()
 
 
-from .models import Confirmacion, HistorialHueco
+from .models import Confirmacion, HistorialHueco, EstadoHueco
 from .config import UMBRAL_CONFIRMACION_REPARADO
 
 @receiver(post_save, sender=Confirmacion)
 def procesar_confirmacion_estado(sender, instance, created, **kwargs):
     """
-    Automatiza el cambio de estado a 'reparado' si suficientes usuarios lo confirman.
+    Automatiza el cambio de estado si suficientes usuarios votan por un estado específico.
+    Lógica: Si el estado votado alcanza el umbral, el hueco cambia a ese estado.
     """
     if not created:
         return
 
     hueco = instance.hueco
-    
-    # Solo procesamos si el hueco está activo o reabierto
-    if hueco.estado not in ['activo', 'reabierto']:
+    voto_estado = instance.nuevo_estado # Integer
+
+    # Si el estado es nulo o igual al actual, ignorar
+    if not voto_estado or voto_estado == hueco.estado:
         return
 
-    # Contar votos de "ya está reparado" (confirmado=False)
-    # y votos de "sigue ahí" (confirmado=True)
-    votos_reparado = Confirmacion.objects.filter(hueco=hueco, confirmado=False).count()
-    votos_sigue_ahi = Confirmacion.objects.filter(hueco=hueco, confirmado=True).count()
+    # Contar votos para este estado específico EN EL CICLO ACTUAL
+    count = Confirmacion.objects.filter(
+        hueco=hueco, 
+        nuevo_estado=voto_estado,
+        numero_ciclo=hueco.numero_ciclos  # Filtro clave
+    ).count()
 
-    # Umbral desde config
-    if votos_reparado >= UMBRAL_CONFIRMACION_REPARADO:
-        hueco.estado = 'reparado'
+    # Umbral
+    if count >= UMBRAL_CONFIRMACION_REPARADO:
+        hueco.estado = voto_estado
         hueco.save()
         
-        # Registrar historial
+        # Obtener nombre del estado para el historial
+        nombre_estado = EstadoHueco(voto_estado).label
+        
         HistorialHueco.objects.create(
             hueco=hueco,
-            usuario=instance.usuario,  # El usuario que completó el umbral
-            accion="Marcado como reparado por la comunidad"
+            usuario=instance.usuario,
+            accion=f"Cambio a '{nombre_estado}' por votación de la comunidad"
         )
-        # Notificar al creador original (opcional, implementar luego)
 
-    # Nota: Podrías agregar lógica inversa (si muchos dicen que sigue ahí, reabrirlo si estaba en duda)
+        # --- Repartir Puntos por Aprobación ---
+        # Buscar todos los que votaron por este estado EN EL CICLO ACTUAL
+        ganadores = Confirmacion.objects.filter(
+            hueco=hueco,
+            nuevo_estado=voto_estado,
+            numero_ciclo=hueco.numero_ciclos
+        )
+        for ganador in ganadores:
+            registrar_puntos(
+                ganador.usuario, 
+                5, # Puntos por acertar
+                "confirmacion_exitosa", 
+                f"Tu voto ayudó a cambiar el hueco #{hueco.id} a {nombre_estado}"
+            )
 

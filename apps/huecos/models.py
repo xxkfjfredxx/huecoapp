@@ -5,20 +5,28 @@ from django.conf import settings
 from apps.utils.mixins import AuditMixin
 from apps.usuarios.models import User
 
+class EstadoHueco(models.IntegerChoices):
+    PENDIENTE = 1, 'Pendiente de validación'
+    ACTIVO = 2, 'Activo'
+    RECHAZADO = 3, 'Rechazado'
+    REABIERTO = 4, 'Reabierto'
+    CERRADO = 5, 'Cerrado'
+    EN_REPARACION = 6, 'En reparación'
+    REPARADO = 7, 'Reparado'
+
 class Hueco(AuditMixin, BaseStatusModel):
-    ESTADOS = [
-        ('pendiente_validacion', 'Pendiente de validación'),
-        ('activo', 'Activo'),
-        ('rechazado', 'Rechazado'),
-        ('reabierto', 'Reabierto'),
-        ('cerrado', 'Cerrado'),
-    ]
+    # Usamos los choices numéricos
     ciudad = models.CharField(max_length=100, blank=True, null=True)
     usuario = models.ForeignKey('usuarios.User', on_delete=models.CASCADE, related_name='huecos')
     latitud = models.FloatField()
     longitud = models.FloatField()
     descripcion = models.TextField(blank=True, null=True)
-    estado = models.CharField(max_length=30, choices=ESTADOS, default='pendiente_validacion')
+    
+    estado = models.PositiveSmallIntegerField(
+        choices=EstadoHueco.choices, 
+        default=EstadoHueco.PENDIENTE
+    )
+    
     fecha_reporte = models.DateTimeField(auto_now_add=True)
     fecha_actualizacion = models.DateTimeField(auto_now=True)
     numero_ciclos = models.IntegerField(default=0)
@@ -115,13 +123,13 @@ class Hueco(AuditMixin, BaseStatusModel):
         # 🔹 Umbrales (ponderados) con configuración global
         from .config import UMBRAL_VALIDACION_POSITIVA, UMBRAL_VALIDACION_NEGATIVA
         
-        if positivas >= UMBRAL_VALIDACION_POSITIVA and self.estado == 'pendiente_validacion':
-            self.estado = 'activo'
+        if positivas >= UMBRAL_VALIDACION_POSITIVA and self.estado == self.EstadoHueco.PENDIENTE:
+            self.estado = self.EstadoHueco.ACTIVO
             self.save()
             self.asignar_puntos_aprobacion()
 
-        elif negativas >= UMBRAL_VALIDACION_NEGATIVA and self.estado == 'pendiente_validacion':
-            self.estado = 'rechazado'
+        elif negativas >= UMBRAL_VALIDACION_NEGATIVA and self.estado == self.EstadoHueco.PENDIENTE:
+            self.estado = self.EstadoHueco.RECHAZADO
             self.save()
             self.asignar_puntos_rechazo()
 
@@ -164,14 +172,15 @@ class HistorialHueco(AuditMixin):
 class Confirmacion(AuditMixin, BaseStatusModel):
     hueco = models.ForeignKey(Hueco, on_delete=models.CASCADE, related_name="confirmaciones")
     usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    confirmado = models.BooleanField()  # True = sigue, False = reparado
+    nuevo_estado = models.PositiveSmallIntegerField(choices=EstadoHueco.choices, default=EstadoHueco.PENDIENTE) 
+    numero_ciclo = models.IntegerField(default=0)
     fecha = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("hueco", "usuario")
+        unique_together = ("hueco", "usuario", "numero_ciclo")
 
     def __str__(self):
-        return f"{self.usuario} confirmó hueco {self.hueco.id}"
+        return f"{self.usuario} confirmó hueco {self.hueco.id} ciclo {self.numero_ciclo}"
 
 
 class Comentario(AuditMixin, BaseStatusModel):
