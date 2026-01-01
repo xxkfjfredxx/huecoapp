@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Hueco, HistorialHueco, Confirmacion, Comentario, PuntosUsuario, ValidacionHueco,Suscripcion
+from .models import Hueco, HistorialHueco, Confirmacion, Comentario, PuntosUsuario, ValidacionHueco, Suscripcion, EstadoHueco
 
 
 class ComentarioSerializer(serializers.ModelSerializer):
@@ -13,7 +13,6 @@ class ComentarioSerializer(serializers.ModelSerializer):
 
 class HuecoSerializer(serializers.ModelSerializer):
     usuario = serializers.PrimaryKeyRelatedField(read_only=True)
-    usuario_nombre = serializers.CharField(source='usuario.username', read_only=True)
     usuario_nombre = serializers.CharField(source='usuario.username', read_only=True)
     comentarios = serializers.SerializerMethodField()
     total_comentarios = serializers.IntegerField(source='comentarios.count', read_only=True)
@@ -68,10 +67,14 @@ class HuecoSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if not request or not request.user.is_authenticated:
             return None
-        # Buscar confirmacion existente (voto)
-        confirmacion = Confirmacion.objects.filter(hueco=obj, usuario=request.user).first()
+        # Buscar confirmacion del ciclo actual
+        confirmacion = Confirmacion.objects.filter(
+            hueco=obj, 
+            usuario=request.user,
+            numero_ciclo=obj.numero_ciclos
+        ).first()
         if confirmacion:
-            return ConfirmacionSerializer(confirmacion).data
+            return ConfirmacionSerializer(confirmacion, context=self.context).data
         return None
 
     def get_validado_usuario(self, obj):
@@ -84,10 +87,10 @@ class HuecoSerializer(serializers.ModelSerializer):
         ).exists()
 
     def get_faltan_validaciones(self, obj):
-        # Solo aplica mientras está pendiente de validación
-        if obj.estado != "pendiente_validacion":
+        # Solo aplica mientras está pendiente de validación (Estado 1)
+        if obj.estado != EstadoHueco.PENDIENTE:
             return 0
-        faltan = 5 - (obj.validaciones_positivas or 0)  # tu umbral es 5
+        faltan = 5 - (obj.validaciones_positivas or 0)
         return max(faltan, 0)
 
 class ConfirmacionSerializer(serializers.ModelSerializer):
