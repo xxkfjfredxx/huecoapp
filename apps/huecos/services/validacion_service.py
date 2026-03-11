@@ -1,69 +1,90 @@
-from apps.huecos.models import PuntosUsuario, HistorialHueco
+from apps.huecos.models import PuntosUsuario, HistorialHueco, EstadoHueco
 from apps.usuarios.models import ReputacionUsuario
 from apps.huecos.services.puntos_service import registrar_puntos
-from django.db import models
+from django.db import models, transaction
 
 def procesar_validacion(hueco, usuario, voto):
     """
-    Evalúa el estado del hueco según votos y reputaciones.
-    Lógica movida desde ValidacionHuecoViewSet.
+    Registra el voto de un usuario sobre la existencia de un hueco.
+    Calcula el peso del voto según reputación y actualiza estadísticas.
     """
+    with transaction.atomic():
+        # 0. Evitar que el autor valide su propio reporte (doble validación)
+        if hueco.usuario == usuario:
+            return
 
-    # Obtener reputación del validador
-    reputacion, _ = ReputacionUsuario.objects.get_or_create(usuario=usuario)
-    if reputacion.nivel_confianza == "experto":
-        peso = 2
-    elif reputacion.nivel_confianza == "confiable":
-        peso = 1.5
-    else:
-        peso = 1
+        # 1. Obtener reputación del validador para determinar peso
+        reputacion, _ = ReputacionUsuario.objects.get_or_create(usuario=usuario)
+        if reputacion.nivel_confianza == "experto":
+            peso = 2
+        elif reputacion.nivel_confianza == "confiable":
+            peso = 1.5
+        else:
+            peso = 1
 
-    # Actualizar conteos ponderados
-    if voto:
-        hueco.validaciones_positivas += peso
-    else:
-        hueco.validaciones_negativas += peso
-    hueco.save()
+        # 2. Actualizar conteos ponderados en el hueco
+        if voto:
+            hueco.validaciones_positivas += peso
+            # Puntos para el validador
+            registrar_puntos(usuario, 2, "confirmacion", f"Confirmación positiva de hueco #{hueco.id}")
+        else:
+            hueco.validaciones_negativas += peso
+            # Puntos para el validador
+            registrar_puntos(usuario, 1, "confirmacion", f"Validación negativa de hueco #{hueco.id}")
+        
+        hueco.save(update_fields=['validaciones_positivas', 'validaciones_negativas'])
 
-    # Registrar acción
-    HistorialHueco.objects.create(
-        hueco=hueco,
-        usuario=usuario,
-        accion=f"Validación {'positiva' if voto else 'negativa'} de {usuario.username}"
-    )
+        # 3. Registrar en historial
+        HistorialHueco.objects.create(
+            hueco=hueco,
+            usuario=usuario,
+            accion=f"Validación {'positiva' if voto else 'negativa'} (Peso: {peso})"
+        )
 
-    # Umbrales desde config
+        # 4. Evaluar si el hueco cambia de estado (PENDIENTE -> ACTIVO/RECHAZADO)
+        evaluar_y_actualizar_estado_hueco(hueco)
+
+def evaluar_y_actualizar_estado_hueco(hueco):
+    """
+    Revisa si un hueco en estado PENDIENTE debe ser aprobado o rechazado
+    basándose en los umbrales de validación.
+    """
     from apps.huecos.config import UMBRAL_VALIDACION_POSITIVA, UMBRAL_VALIDACION_NEGATIVA
+    from apps.huecos.services.notificacion_service import notificar_validacion_final
+    
+    if hueco.estado != EstadoHueco.PENDIENTE:
+        return
 
     positivas = hueco.validaciones_positivas
     negativas = hueco.validaciones_negativas
     autor = hueco.usuario
 
-    if positivas >= UMBRAL_VALIDACION_POSITIVA and hueco.estado == hueco.EstadoHueco.PENDIENTE:
-        hueco.estado = hueco.EstadoHueco.ACTIVO
-        hueco.save()
-
-        registrar_puntos(autor, 10, "verificacion", f"Hueco #{hueco.id} verificado como real")
+    if positivas >= UMBRAL_VALIDACION_POSITIVA:
+        hueco.estado = EstadoHueco.ACTIVO
+        hueco.save(update_fields=['estado'])
+        
+        # Premiar al autor del reporte real
+        registrar_puntos(autor, 10, "verificacion", f"Hueco #{hueco.id} verificado por la comunidad")
+        
+        # Premiar (bono extra) a los validadores que acertaron
         for v in hueco.validaciones.filter(voto=True):
-            registrar_puntos(v.usuario, 5, "confirmacion", f"Validación positiva del hueco #{hueco.id}")
+            if v.usuario != autor:
+                registrar_puntos(v.usuario, 3, "confirmacion", f"Bono por validación correcta de hueco #{hueco.id}")
+        
+        # Notificar al autor
+        notificar_validacion_final(hueco, es_positivo=True)
 
-    elif negativas >= UMBRAL_VALIDACION_NEGATIVA and hueco.estado == hueco.EstadoHueco.PENDIENTE:
-        hueco.estado = hueco.EstadoHueco.RECHAZADO
-        hueco.save()
-
-        registrar_puntos(autor, -15, "verificacion", f"Hueco #{hueco.id} rechazado (falso reporte)")
+    elif negativas >= UMBRAL_VALIDACION_NEGATIVA:
+        hueco.estado = EstadoHueco.RECHAZADO
+        hueco.save(update_fields=['estado'])
+        
+        # Penalizar al autor del reporte falso
+        registrar_puntos(autor, -15, "reporte_falso", f"Hueco #{hueco.id} rechazado como falso")
+        
+        # Premiar a los validadores que detectaron la falsedad
         for v in hueco.validaciones.filter(voto=False):
-            registrar_puntos(v.usuario, 3, "confirmacion", f"Validación negativa del hueco #{hueco.id}")
-
-    # Actualizar reputaciones de todos los usuarios involucrados
-    for v in hueco.validaciones.all():
-        rep, _ = ReputacionUsuario.objects.get_or_create(usuario=v.usuario)
-        total = PuntosUsuario.objects.filter(usuario=v.usuario).aggregate(total=models.Sum('puntos'))['total'] or 0
-        rep.puntaje_total = total
-        rep.actualizar_nivel()
-
-    # Actualizar reputación del autor
-    rep_autor, _ = ReputacionUsuario.objects.get_or_create(usuario=autor)
-    total_autor = PuntosUsuario.objects.filter(usuario=autor).aggregate(total=models.Sum('puntos'))['total'] or 0
-    rep_autor.puntaje_total = total_autor
-    rep_autor.actualizar_nivel()
+            if v.usuario != autor:
+                registrar_puntos(v.usuario, 2, "confirmacion", f"Bono por detectar reporte falso #{hueco.id}")
+        
+        # Notificar al autor
+        notificar_validacion_final(hueco, es_positivo=False)

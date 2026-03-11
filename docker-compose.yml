@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: huecoapp_redis
+    ports:
+      - "6380:6379"  # Puerto 6380 para evitar conflictos con otros proyectos
+    volumes:
+      - huecoapp_redis_data:/data
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+
+volumes:
+  huecoapp_redis_data:

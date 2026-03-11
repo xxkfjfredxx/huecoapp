@@ -42,71 +42,82 @@ class HuecoViewSet(viewsets.ModelViewSet):
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        # Incrementar vistas
-        instance.vistas += 1
-        instance.save(update_fields=['vistas'])
+        
+        # Incrementar vistas (Redis optimizado)
+        try:
+            cache_key = f"hueco_vistas_{instance.id}"
+            try:
+                cache.incr(cache_key)
+            except ValueError:
+                cache.set(cache_key, 1, timeout=None)
+            instance.vistas += 1 
+        except Exception:
+            # Fallback
+            instance.vistas += 1
+            instance.save(update_fields=['vistas'])
+
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
     def perform_create(self, serializer):
+        from django.db import transaction
         user = self.request.user
         hoy = now().date()
 
-        # 1️⃣ Límite diario
-        reportes_hoy = Hueco.objects.filter(usuario=user, fecha_reporte__date=hoy).count()
-        if reportes_hoy >= 20:
-            raise serializers.ValidationError("Límite diario de 20 reportes alcanzado.")
+        with transaction.atomic():
+            # 1️⃣ Límite diario
+            reportes_hoy = Hueco.objects.filter(usuario=user, fecha_reporte__date=hoy).count()
+            if reportes_hoy >= 20:
+                raise serializers.ValidationError("Límite diario de 20 reportes alcanzado.")
 
-        # 2️⃣ Revisión de huecos cercanos
-        lat = self.request.data.get('latitud')
-        lon = self.request.data.get('longitud')
-        hueco_existente = None
+            # 2️⃣ Revisión de huecos cercanos
+            lat = self.request.data.get('latitud')
+            lon = self.request.data.get('longitud')
+            hueco_existente = None
 
-        if lat and lon:
-            try:
-                lat, lon = float(lat), float(lon)
-                cercanos = get_huecos_cercanos(lat, lon, radio_metros=10)
-                for h, distancia in cercanos:
-                    # Usar constantes numéricas
-                    if h.estado in [EstadoHueco.CERRADO, EstadoHueco.REABIERTO, EstadoHueco.REPARADO]: 
-                        hueco_existente = h
-                        break
-            except ValueError:
-                pass
+            if lat and lon:
+                try:
+                    lat, lon = float(lat), float(lon)
+                    cercanos = get_huecos_cercanos(lat, lon, radio_metros=10)
+                    for h, distancia in cercanos:
+                        if h.estado in [EstadoHueco.CERRADO, EstadoHueco.REABIERTO, EstadoHueco.REPARADO]: 
+                            hueco_existente = h
+                            break
+                except ValueError:
+                    pass
 
-        # 3️⃣ Reapertura si corresponde
-        if hueco_existente:
-            hueco_existente.estado = EstadoHueco.REABIERTO
-            hueco_existente.numero_ciclos += 1
-            hueco_existente.fecha_actualizacion = now()
-            hueco_existente.save()
+            # 3️⃣ Reapertura si corresponde
+            if hueco_existente:
+                hueco_existente.estado = EstadoHueco.REABIERTO
+                hueco_existente.numero_ciclos += 1
+                hueco_existente.fecha_actualizacion = now()
+                hueco_existente.save()
+
+                HistorialHueco.objects.create(
+                    hueco=hueco_existente,
+                    usuario=user,
+                    accion=f"Hueco reabierto por {user.username}"
+                )
+
+                registrar_puntos(user, 5, "reapertura", f"Reapertura del hueco #{hueco_existente.id}")
+                from apps.huecos.services.notificacion_service import notificar_reapertura
+                
+                notificar_reapertura(hueco_existente, user)
+                return hueco_existente
+
+            # 4️⃣ Crear nuevo hueco
+            hueco = serializer.save(usuario=user, created_by=user)
+            hueco.status = 1
+            hueco.save(update_fields=['status'])
+            registrar_puntos(user, 10, "reporte", f"Nuevo reporte de hueco #{hueco.id}")
 
             HistorialHueco.objects.create(
-                hueco=hueco_existente,
+                hueco=hueco,
                 usuario=user,
-                accion=f"Hueco reabierto por {user.username}"
+                accion="Reporte de hueco creado"
             )
 
-            registrar_puntos(user, 5, "reapertura", f"Reapertura del hueco #{hueco_existente.id}")
-            from apps.huecos.services.notificacion_service import notificar_reapertura
-            
-            notificar_reapertura(hueco_existente, user)
-
-            return hueco_existente
-
-        # 4️⃣ Crear nuevo hueco
-        hueco = serializer.save(usuario=user, created_by=user)
-        hueco.status = 1
-        hueco.save(update_fields=['status'])
-        registrar_puntos(user, 10, "reporte", f"Nuevo reporte de hueco #{hueco.id}")
-
-        HistorialHueco.objects.create(
-            hueco=hueco,
-            usuario=user,
-            accion="Reporte de hueco creado"
-        )
-
-        return hueco
+            return hueco
 
     @action(detail=True, methods=['post'], url_path='follow')
     def follow(self, request, pk=None):
@@ -221,20 +232,9 @@ class ValidacionHuecoViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         usuario = self.request.user
-        hueco = serializer.validated_data['hueco']
-        voto = serializer.validated_data['voto']
-
-        # Evitar validaciones repetidas
-        if ValidacionHueco.objects.filter(hueco=hueco, usuario=usuario).exists():
-            raise serializers.ValidationError("Ya has validado este hueco.")
-
-        # Guardar validación
-        validacion = serializer.save(usuario=usuario)
-
-        # Procesar lógica desde el servicio
-        procesar_validacion(hueco, usuario, voto)
-
-        return validacion
+        # Guardar validación: Esto disparará el signal actualizar_estado_hueco en signals.py
+        # el cual a su vez llamará al servicio procesar_validacion de forma limpia.
+        return serializer.save(usuario=usuario)
 
 
 class HuecosCercanosViewSet(viewsets.ReadOnlyModelViewSet):
@@ -330,9 +330,9 @@ class MisReportesListView(ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
+        # El usuario pidió explícitamente que "Mis Reportes" sea SOLO para el que reporta el hueco inicialmente.
         return (
-            Hueco.objects.filter(status=1)
-            .filter(Q(usuario=user) | Q(historial__usuario=user))
+            Hueco.objects.filter(status=1, usuario=user)
             .distinct()
             .order_by("-fecha_reporte")
         )

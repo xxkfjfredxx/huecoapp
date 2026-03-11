@@ -9,36 +9,9 @@ def actualizar_estado_hueco(sender, instance, created, **kwargs):
     if not created:
         return
 
-    hueco = instance.hueco
-    usuario = instance.usuario
-    reputacion = getattr(usuario, 'reputacion', None)
-
-    # Si el usuario tiene buena reputación, su voto cuenta doble
-    peso = 2 if reputacion and reputacion.nivel_confianza == "experto" else 1
-
-    # Actualizar contadores del hueco
-    if instance.confirmacion:
-        hueco.validaciones_positivas += peso
-        registrar_puntos(usuario, 2, "validacion_positiva", f"Confirmó existencia de hueco #{hueco.id}")
-        reputacion.puntaje_total += 1
-    else:
-        hueco.validaciones_negativas += peso
-        registrar_puntos(usuario, 1, "validacion_negativa", f"Negó existencia de hueco #{hueco.id}")
-        reputacion.puntaje_total += 1
-
-    hueco.save()
-    if reputacion:
-        reputacion.actualizar_nivel()
-
-    # Re-evaluar si el hueco cambia de estado
-    hueco.evaluar_validaciones()
-
-    if hueco.estado == "rechazado":
-        creador = hueco.usuario
-        registrar_puntos(creador, -10, "reporte_falso", f"Hueco #{hueco.id} rechazado por falsedad")
-        if hasattr(creador, 'reputacion'):
-            creador.reputacion.puntaje_total -= 15
-            creador.reputacion.actualizar_nivel()
+    # Usar el servicio unificado para procesar la validación y evitar duplicados
+    from apps.huecos.services.validacion_service import procesar_validacion
+    procesar_validacion(instance.hueco, instance.usuario, instance.voto)
 
 
 from .models import Confirmacion, HistorialHueco, EstadoHueco
@@ -80,6 +53,10 @@ def procesar_confirmacion_estado(sender, instance, created, **kwargs):
             usuario=instance.usuario,
             accion=f"Cambio a '{nombre_estado}' por votación de la comunidad"
         )
+
+        # Notificar a los interesados
+        from apps.huecos.services.notificacion_service import notificar_cambio_estado
+        notificar_cambio_estado(hueco, nombre_estado)
 
         # --- Repartir Puntos por Aprobación ---
         # Buscar todos los que votaron por este estado EN EL CICLO ACTUAL

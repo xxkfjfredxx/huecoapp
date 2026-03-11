@@ -1,5 +1,5 @@
 from geopy.distance import geodesic
-from apps.huecos.models import Hueco
+from apps.huecos.models import Hueco, EstadoHueco
 
 def get_huecos_cercanos(latitud, longitud, radio_metros=50):
     """
@@ -7,7 +7,12 @@ def get_huecos_cercanos(latitud, longitud, radio_metros=50):
     Retorna lista de tuplas: (Hueco, distancia_en_metros)
     """
     huecos = Hueco.objects.filter(
-        estado__in=['pendiente_validacion', 'cerrado', 'reabierto', 'activo'],
+        estado__in=[
+            EstadoHueco.PENDIENTE, 
+            EstadoHueco.ACTIVO, 
+            EstadoHueco.REABIERTO, 
+            EstadoHueco.CERRADO
+        ],
         status=1,
         is_deleted=False
     )

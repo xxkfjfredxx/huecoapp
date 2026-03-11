@@ -160,6 +160,14 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "apps.core.pagination.DefaultPagination",
     "DEFAULT_FILTER_BACKENDS": ["django_filters.rest_framework.DjangoFilterBackend"],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle"
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "30/day",
+        "user": "200/min",
+    }
 }
 
 SIMPLE_JWT = {
@@ -173,8 +181,8 @@ SIMPLE_JWT = {
 
 CACHES = {
     "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",  # para desarrollo
-        "LOCATION": "unique-huecos-cache"
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": getenv("REDIS_URL", "redis://localhost:6380/1"),
     }
 }
 

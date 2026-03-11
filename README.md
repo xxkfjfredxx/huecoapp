@@ -1,18 +1,66 @@
-# 🛡️ Sistema de Gestión de Riesgos – Backend
+# 🕳️ HuecoApp – Backend API
 
-¡Bienvenido al backend del **Sistema de Gestión de Riesgos Laborales**!  
-Este proyecto está construido con **Django** + **Django REST Framework**, y forma parte de una solución integral para la gestión de empleados, documentos y riesgos laborales en organizaciones.
+¡Bienvenido al backend de **HuecoApp**!  
+Este proyecto está construido con **Django** + **Django REST Framework** y maneja los reportes de daños viales, validaciones por usuarios, gamificación de reputación (puntos/niveles) y compresión automática de evidencias fotográficas.
 
 ---
 
-## 📦 Tecnologías utilizadas
+## 📦 Tecnologías principales
 
-- 🐍 **Python 3.10+**
-- 🌐 **Django** y **Django REST Framework**
-- 🗂️ Modularización profesional por apps (`apps/`)
-- 🔐 **JWT Authentication**
-- 🗃️ **MariaDB / MySQL compatible**
-- 📂 Gestión de documentos con `FileField` y estructura organizada por tipo/fecha
+- 🐍 **Python 3.10+** (Django 4.2+, DRF)
+- 🗃️ **PostgreSQL / MySQL**
+- ⚡ **Celery & Redis**: Para tareas en segundo plano (ej: procesamiento asíncrono de imágenes a WebP y conteo de vistas optimizado).
+- 📲 **Firebase Admin SDK**: Notificaciones Push (FCM).
+- 🔐 **JWT Authentication**: Manejado con `rest_framework_simplejwt`.
+
+---
+
+## 🚀 Cómo Iniciar el Servidor (Entorno de Desarrollo / Pruebas)
+
+### 1. Activar Entorno Virtual y base de datos
+Asegúrate de tener un servidor PostgreSQL ejecutándose y tu entorno virtual activo:
+```bash
+# Windows
+.\venv\Scripts\activate
+```
+
+### 2. Levantar el caché de Redis (Vistas e Imágenes)
+Usa Docker Compose para levantar la instancia aislada de Redis (`huecoapp_redis`).
+```bash
+docker-compose up -d
+```
+
+### 3. Ejecutar el Servidor Web (Django)
+```bash
+python manage.py runserver
+python manage.py runserver 0.0.0.0:8000
+
+```
+
+### 4. Lanzar Workers de Celery (¡Importante para las vistas e imágenes!)
+Abre **dos** nuevas pestañas en la terminal, activa el entorno virtual en ambas (`.\venv\Scripts\activate`) y corre:
+
+**Terminal A (Worker para compresión de fotos):**
+```bash
+celery -A config worker -l info --pool=threads
+```
+**Terminal B (Beat para sincronizar las vistas de redis a BD):**
+```bash
+celery -A config beat -l info
+```
+
+*(Nota: En producción el proceso será muy similar, pero en lugar de `runserver`, se usará un servidor robusto como `gunicorn` o `daphne` atado a un proxy inverso con `Nginx`).*
+
+> 🚨 **¡ATENCIÓN: DEUDA TÉCNICA PARA DESPLIEGUE A PRODUCCIÓN! (PostGIS)** 🚨
+> 
+> Actualmente la ubicación de los huecos (`latitud` / `longitud`) se guarda utilizando `FloatFields` básicos para facilitar el desarrollo rápido en el entorno local (Windows). 
+> 
+> **ANTES de desplegar y escalar la app en el servidor Linux de Producción, debes:**
+> 1. Migrar la base de datos de PostgreSQL básico a **PostGIS** (`postgis/postgis:15-3.3-alpine` si usas Docker).
+> 2. Transformar los campos `latitud/longitud` del modelo `Hueco` en un **`PointField`** de **GeoDjango**.
+> 3. Instalar las dependencias del sistema en el server: `sudo apt-get install binutils libproj-dev gdal-bin`
+> 
+> Esto permitirá usar consultas espaciales nativas como `ST_DWithin`, lo cual es **obligatorio** para no colapsar la RAM del servidor tratando de buscar huecos cercanos usando algoritmos matemáticos en código cuando la base de datos supere los miles de registros.
 
 ---
 

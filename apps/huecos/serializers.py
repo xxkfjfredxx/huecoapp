@@ -134,13 +134,21 @@ class ValidacionHuecoSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         """
-        Evita que el usuario valide más de una vez el mismo hueco.
+        Evita que el usuario valide más de una vez el mismo hueco
+        o valide su propio reporte.
         """
         request = self.context.get('request')
         user = request.user if request else None
 
-        if user and ValidacionHueco.objects.filter(hueco=data['hueco'], usuario=user).exists():
-            raise serializers.ValidationError("Ya has validado este hueco.")
+        if user:
+            # 1. No validar propio reporte
+            if data['hueco'].usuario == user:
+                raise serializers.ValidationError("No puedes validar tu propio reporte.")
+
+            # 2. No validar dos veces
+            if ValidacionHueco.objects.filter(hueco=data['hueco'], usuario=user).exists():
+                raise serializers.ValidationError("Ya has validado este hueco.")
+        
         return data
 
 
