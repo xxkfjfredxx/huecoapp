@@ -179,4 +179,3 @@ backend.zip
 google-services.json
 node_modules/
 config/firebase-adminsdk.json
-test_zip/config/firebase-adminsdk.json
