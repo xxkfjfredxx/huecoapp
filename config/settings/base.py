@@ -186,6 +186,8 @@ CACHES = {
     }
 }
 
+
+
 SPECTACULAR_SETTINGS = {
     "TITLE": "SGR API",
     "DESCRIPTION": "Documentación de la API",
@@ -252,6 +254,15 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
+# Celery Configuration
+CELERY_BROKER_URL = getenv("REDIS_URL", "redis://localhost:6380/1")
+CELERY_RESULT_BACKEND = getenv("REDIS_URL", "redis://localhost:6380/1")
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_ENABLE_UTC = True
+
 # =========================
 # Static / default PK
 # =========================
@@ -282,3 +293,10 @@ if not DEBUG:
     EMAIL_HOST_PASSWORD = os.getenv("SENDGRID_API_KEY")
 
 DEFAULT_FROM_EMAIL = "hueco.app.co@gmail.com"
+# =========================
+# Celery Resilience
+# =========================
+# Ponemos esto en False para que el Worker de Celery tome las tareas de verdad
+CELERY_TASK_ALWAYS_EAGER = False
+CELERY_TASK_EAGER_PROPAGATES = False
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True

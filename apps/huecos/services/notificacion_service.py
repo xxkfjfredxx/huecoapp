@@ -27,7 +27,10 @@ def notificar_reapertura(hueco, usuario_reapertor):
     if tokens:
         titulo = "Hueco reabierto 🚧"
         mensaje = f"El hueco #{hueco.id} ha sido reabierto cerca de tu ubicación o es uno que sigues."
-        enviar_notificaciones_push.delay(tokens, titulo, mensaje)
+        try:
+            enviar_notificaciones_push.delay(tokens, titulo, mensaje)
+        except Exception as e:
+            print(f"Error al enviar notificación de reapertura: {e}")
 
 def notificar_cambio_estado(hueco, nuevo_estado_nombre, excluidos=[]):
     """
@@ -43,7 +46,10 @@ def notificar_cambio_estado(hueco, nuevo_estado_nombre, excluidos=[]):
     if tokens:
         titulo = f"Actualización: {nuevo_estado_nombre}✅"
         mensaje = f"El hueco #{hueco.id} ahora está en estado '{nuevo_estado_nombre}'."
-        enviar_notificaciones_push.delay(tokens, titulo, mensaje)
+        try:
+            enviar_notificaciones_push.delay(tokens, titulo, mensaje)
+        except Exception as e:
+            print(f"Error al enviar notificación de cambio de estado: {e}")
 
 def notificar_validacion_final(hueco, es_positivo):
     """
@@ -57,4 +63,8 @@ def notificar_validacion_final(hueco, es_positivo):
         else:
             titulo = "Reporte rechazado"
             mensaje = f"Lamentablemente tu reporte #{hueco.id} fue marcado como falso o inexistente."
-        enviar_notificaciones_push.delay(tokens, titulo, mensaje)
+        
+        try:
+            enviar_notificaciones_push.delay(tokens, titulo, mensaje)
+        except Exception as e:
+            print(f"Error al enviar notificación de validación: {e}")

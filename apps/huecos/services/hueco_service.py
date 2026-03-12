@@ -11,7 +11,9 @@ def get_huecos_cercanos(latitud, longitud, radio_metros=50):
             EstadoHueco.PENDIENTE, 
             EstadoHueco.ACTIVO, 
             EstadoHueco.REABIERTO, 
-            EstadoHueco.CERRADO
+            EstadoHueco.CERRADO,
+            EstadoHueco.EN_REPARACION,
+            EstadoHueco.REPARADO
         ],
         status=1,
         is_deleted=False

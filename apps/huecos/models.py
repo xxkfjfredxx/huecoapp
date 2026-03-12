@@ -34,6 +34,7 @@ class Hueco(AuditMixin, BaseStatusModel):
     validaciones_negativas = models.IntegerField(default=0)
     imagen = models.ImageField(upload_to="huecos/", null=True, blank=True)
     imagen_preview = models.ImageField(upload_to="huecos/preview/", null=True, blank=True)
+    denuncias_count = models.PositiveIntegerField(default=0)
 
     # Nuevos campos
     vistas = models.IntegerField(default=0)
@@ -52,7 +53,14 @@ class Hueco(AuditMixin, BaseStatusModel):
         if is_new and self.imagen:
             from django.db import transaction
             from apps.huecos.tasks import optimizar_imagen_hueco_task
-            transaction.on_commit(lambda: optimizar_imagen_hueco_task.delay(self.pk))
+            
+            def safe_delay():
+                try:
+                    optimizar_imagen_hueco_task.delay(self.pk)
+                except Exception as e:
+                    print(f"Error al encolar tarea de optimización (post-commit): {e}")
+
+            transaction.on_commit(safe_delay)
             
     def evaluar_validaciones(self):
         from apps.huecos.services.puntos_service import evaluar_validaciones_hueco
@@ -194,3 +202,35 @@ class Suscripcion(AuditMixin, BaseStatusModel):
 
     def __str__(self):
         return f"{self.usuario} sigue hueco {self.hueco_id}"
+
+class DenunciaHueco(AuditMixin, BaseStatusModel):
+    MOTIVOS = [
+        ('obscene', 'Imagen Obscena/Inapropiada'),
+        ('spam', 'Spam / Falso'),
+        ('offensive', 'Lenguaje Ofensivo'),
+        ('other', 'Otro'),
+    ]
+    
+    hueco = models.ForeignKey(Hueco, on_delete=models.CASCADE, related_name='denuncias')
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    motivo = models.CharField(max_length=20, choices=MOTIVOS, default='other')
+    comentario = models.TextField(blank=True, null=True)
+    fecha = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('hueco', 'usuario')
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        if is_new:
+            # Incrementar contador en el hueco
+            self.hueco.denuncias_count += 1
+            if self.hueco.denuncias_count >= 3:
+                # Ocultar automáticamente
+                self.hueco.status = 0
+                self.hueco.is_deleted = True
+            self.hueco.save(update_fields=['denuncias_count', 'status', 'is_deleted'])
+
+    def __str__(self):
+        return f"Denuncia de {self.usuario} a Hueco #{self.hueco.id}"

@@ -9,58 +9,50 @@ Este proyecto está construido con **Django** + **Django REST Framework** y mane
 
 - 🐍 **Python 3.10+** (Django 4.2+, DRF)
 - 🗃️ **PostgreSQL / MySQL**
-- ⚡ **Celery & Redis**: Para tareas en segundo plano (ej: procesamiento asíncrono de imágenes a WebP y conteo de vistas optimizado).
-- 📲 **Firebase Admin SDK**: Notificaciones Push (FCM).
-- 🔐 **JWT Authentication**: Manejado con `rest_framework_simplejwt`.
+- ⚡ **Redis**: Base de datos en memoria que actúa como "mensajero" (Broker) entre Django y Celery. Corre en el puerto `6380`.
+- ⚙️ **Celery**: Motor de tareas asíncronas para procesos pesados (compresión de imágenes a WebP, notificaciones push, etc.).
+- 📲 **Firebase Admin SDK**: Gestión de notificaciones push (FCM).
+- 🔐 **JWT Authentication**: Seguridad con `rest_framework_simplejwt`.
 
 ---
 
-## 🚀 Cómo Iniciar el Servidor (Entorno de Desarrollo / Pruebas)
+## 🚀 Cómo Iniciar el Servidor (Entorno de Desarrollo en Windows)
 
-### 1. Activar Entorno Virtual y base de datos
-Asegúrate de tener un servidor PostgreSQL ejecutándose y tu entorno virtual activo:
+Para que el sistema funcione completamente, necesitas tener **3 terminales** (o procesos) corriendo simultáneamente:
+
+### 1️⃣ Levantar Redis (El Mensajero)
+Usa Docker Desktop para levantar el contenedor de Redis. Este proyecto está configurado para usar el puerto **6380**.
 ```bash
-# Windows
-.\venv\Scripts\activate
+docker-compose up -d huecoapp_redis
 ```
+*Si no usas Docker, asegúrate de que Redis esté instalado y corriendo en `localhost:6380`.*
 
-### 2. Levantar el caché de Redis (Vistas e Imágenes)
-Usa Docker Compose para levantar la instancia aislada de Redis (`huecoapp_redis`).
+### 2️⃣ Ejecutar Django (El Cerebro)
+Activa tu entorno virtual e inicia el servidor de desarrollo:
 ```bash
-docker-compose up -d
-```
-
-### 3. Ejecutar el Servidor Web (Django)
-```bash
+# Terminal 1
+venv\Scripts\activate
 python manage.py runserver
-python manage.py runserver 0.0.0.0:8000
-
 ```
 
-### 4. Lanzar Workers de Celery (¡Importante para las vistas e imágenes!)
-Abre **dos** nuevas pestañas en la terminal, activa el entorno virtual en ambas (`.\venv\Scripts\activate`) y corre:
-
-**Terminal A (Worker para compresión de fotos):**
+### 3️⃣ Ejecutar Celery Worker (El Obrero)
+Es el encargado de procesar las imágenes y enviar notificaciones en segundo plano. En Windows es **obligatorio** usar el flag `-P solo`.
 ```bash
-celery -A config worker -l info --pool=threads
-```
-**Terminal B (Beat para sincronizar las vistas de redis a BD):**
-```bash
-celery -A config beat -l info
+# Terminal 2
+venv\Scripts\activate
+celery -A config worker --loglevel=info -P solo
 ```
 
-*(Nota: En producción el proceso será muy similar, pero en lugar de `runserver`, se usará un servidor robusto como `gunicorn` o `daphne` atado a un proxy inverso con `Nginx`).*
+---
 
-> 🚨 **¡ATENCIÓN: DEUDA TÉCNICA PARA DESPLIEGUE A PRODUCCIÓN! (PostGIS)** 🚨
-> 
-> Actualmente la ubicación de los huecos (`latitud` / `longitud`) se guarda utilizando `FloatFields` básicos para facilitar el desarrollo rápido en el entorno local (Windows). 
-> 
-> **ANTES de desplegar y escalar la app en el servidor Linux de Producción, debes:**
-> 1. Migrar la base de datos de PostgreSQL básico a **PostGIS** (`postgis/postgis:15-3.3-alpine` si usas Docker).
-> 2. Transformar los campos `latitud/longitud` del modelo `Hueco` en un **`PointField`** de **GeoDjango**.
-> 3. Instalar las dependencias del sistema en el server: `sudo apt-get install binutils libproj-dev gdal-bin`
-> 
-> Esto permitirá usar consultas espaciales nativas como `ST_DWithin`, lo cual es **obligatorio** para no colapsar la RAM del servidor tratando de buscar huecos cercanos usando algoritmos matemáticos en código cuando la base de datos supere los miles de registros.
+## 🧠 Arquitectura de Tareas (¿Cómo funciona?)
+
+El flujo de un reporte funciona así para que la App sea súper rápida:
+1. **App Móvil** envía el reporte con una imagen al endpoint `/api/v1/huecos/`.
+2. **Django** guarda el reporte en la BD e inmediatamente le dice a **Redis**: *"Oye, aquí hay una tarea de optimización pendiente"*.
+3. **Django** le responde `201 Created` a la App (en milisegundos).
+4. El **Worker de Celery** detecta la tarea en Redis, toma la imagen original, la comprime a WebP y genera una versión miniatura (preview).
+5. (Opcional) El worker envía las notificaciones push a los usuarios cercanos.
 
 ---
 

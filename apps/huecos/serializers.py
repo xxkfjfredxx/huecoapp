@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Hueco, HistorialHueco, Confirmacion, Comentario, PuntosUsuario, ValidacionHueco, Suscripcion, EstadoHueco
+from .models import Hueco, HistorialHueco, Confirmacion, Comentario, PuntosUsuario, ValidacionHueco, Suscripcion, EstadoHueco, DenunciaHueco
 
 
 class ComentarioSerializer(serializers.ModelSerializer):
@@ -156,3 +156,10 @@ class SuscripcionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Suscripcion
         fields = ['id', 'usuario', 'hueco', 'fecha', 'status']
+
+
+class DenunciaHuecoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DenunciaHueco
+        fields = ['id', 'hueco', 'usuario', 'motivo', 'comentario', 'fecha']
+        read_only_fields = ['usuario', 'fecha']

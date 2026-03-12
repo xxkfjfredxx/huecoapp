@@ -10,17 +10,18 @@ from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.db.models import Q
 from rest_framework.generics import ListAPIView
+from geopy.distance import geodesic
 
 
 from .models import (
     Hueco, Confirmacion, Comentario,
     PuntosUsuario, HistorialHueco, ValidacionHueco, Suscripcion,
-    EstadoHueco
+    EstadoHueco, DenunciaHueco
 )
 from .serializers import (
     HuecoSerializer, ConfirmacionSerializer,
     ComentarioSerializer, PuntosUsuarioSerializer,
-    ValidacionHuecoSerializer
+    ValidacionHuecoSerializer, DenunciaHuecoSerializer
 )
 
 from apps.huecos.services.hueco_service import get_huecos_cercanos
@@ -59,6 +60,21 @@ class HuecoViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
+    def create(self, request, *args, **kwargs):
+        # Sobrescribimos create para manejar la lógica de reapertura de forma limpia
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        # Ejecutar lógica y capturar el hueco (nuevo o reabierto)
+        hueco = self.perform_create(serializer)
+        
+        # Si perform_create devolvió un hueco que ya existía (reapertura o duplicado)
+        if hasattr(hueco, '_reabierto') or hasattr(hueco, '_ya_reportado'):
+            return Response(self.get_serializer(hueco).data, status=status.HTTP_200_OK)
+            
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
     def perform_create(self, serializer):
         from django.db import transaction
         user = self.request.user
@@ -77,38 +93,67 @@ class HuecoViewSet(viewsets.ModelViewSet):
 
             if lat and lon:
                 try:
-                    lat, lon = float(lat), float(lon)
-                    cercanos = get_huecos_cercanos(lat, lon, radio_metros=10)
-                    for h, distancia in cercanos:
-                        if h.estado in [EstadoHueco.CERRADO, EstadoHueco.REABIERTO, EstadoHueco.REPARADO]: 
+                    lat_f = float(lat)
+                    lon_f = float(lon)
+                    cercanos = get_huecos_cercanos(lat_f, lon_f, radio_metros=20)
+                    for h, _ in cercanos:
+                        # Casos 1 & 2: Si ya está reportado y sigue vigente, no crear otro!
+                        if h.estado in [EstadoHueco.PENDIENTE, EstadoHueco.ACTIVO, EstadoHueco.REABIERTO, EstadoHueco.EN_REPARACION]:
+                            h._ya_reportado = True
+                            return h
+                            
+                        # Caso 3: Si ya estaba arreglado o cerrado, entonces sí lo reabrimos
+                        if h.estado in [EstadoHueco.CERRADO, EstadoHueco.REPARADO]:
                             hueco_existente = h
                             break
-                except ValueError:
+                except (ValueError, TypeError, Exception):
+                    # Evitamos que cualquier fallo en geolocalización rompa el guardado
                     pass
 
-            # 3️⃣ Reapertura si corresponde
+            # 2.2️⃣ Validación: Usuario cerca del Hueco (Anti-fraude)
+            # Esperamos 'user_lat' y 'user_lon' desde la App
+            user_lat = self.request.data.get('user_lat')
+            user_lon = self.request.data.get('user_lon')
+            if user_lat and user_lon and lat and lon:
+                try:
+                    u_lat = float(user_lat)
+                    u_lon = float(user_lon)
+                    dist_usuario = geodesic((u_lat, u_lon), (lat_f, lon_f)).meters
+                    if dist_usuario > 100: # Límite de 100 metros
+                        raise serializers.ValidationError(
+                            f"Estás muy lejos del hueco ({int(dist_usuario)}m). "
+                            "Debes estar a menos de 100m para reportarlo."
+                        )
+                except (ValueError, TypeError):
+                    pass
+
+            # 3️⃣ Reapertura si corresponde (porque estaba reparado/cerrado)
             if hueco_existente:
                 hueco_existente.estado = EstadoHueco.REABIERTO
                 hueco_existente.numero_ciclos += 1
                 hueco_existente.fecha_actualizacion = now()
-                hueco_existente.save()
+                hueco_existente.save(update_fields=['estado', 'numero_ciclos', 'fecha_actualizacion'])
 
                 HistorialHueco.objects.create(
                     hueco=hueco_existente,
                     usuario=user,
-                    accion=f"Hueco reabierto por {user.username}"
+                    accion=f"Hueco reabierto por {user.username} (desde ubicación)"
                 )
 
                 registrar_puntos(user, 5, "reapertura", f"Reapertura del hueco #{hueco_existente.id}")
                 from apps.huecos.services.notificacion_service import notificar_reapertura
                 
                 notificar_reapertura(hueco_existente, user)
+                hueco_existente._reabierto = True
                 return hueco_existente
 
             # 4️⃣ Crear nuevo hueco
-            hueco = serializer.save(usuario=user, created_by=user)
-            hueco.status = 1
-            hueco.save(update_fields=['status'])
+            # 0️⃣ Imagen obligatoria para nuevos reportes
+            if not self.request.FILES.get('imagen'):
+                raise serializers.ValidationError({"imagen": "La foto del hueco es obligatoria para crear un reporte."})
+
+            # Guardamos de una vez con status=1 (BaseStatusModel)
+            hueco = serializer.save(usuario=user, created_by=user, status=1)
             registrar_puntos(user, 10, "reporte", f"Nuevo reporte de hueco #{hueco.id}")
 
             HistorialHueco.objects.create(
@@ -150,6 +195,30 @@ class HuecoViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Has dejado de seguir este hueco."})
         except Suscripcion.DoesNotExist:
             return Response({"detail": "No sigues este hueco."}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'], url_path='reportar')
+    def reportar(self, request, pk=None):
+        """Permite a los usuarios denunciar contenido inapropiado o falso"""
+        hueco = self.get_object()
+        user = request.user
+        motivo = request.data.get('motivo', 'other')
+        comentario = request.data.get('comentario', '')
+
+        if DenunciaHueco.objects.filter(hueco=hueco, usuario=user).exists():
+            return Response({"detail": "Ya has reportado este contenido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        DenunciaHueco.objects.create(
+            hueco=hueco,
+            usuario=user,
+            motivo=motivo,
+            comentario=comentario
+        )
+        
+        hueco.refresh_from_db()
+        if hueco.is_deleted:
+             return Response({"detail": "Gracias por reportar. El contenido ha sido removido."}, status=status.HTTP_200_OK)
+
+        return Response({"detail": "Denuncia recibida correctamente."}, status=status.HTTP_201_CREATED)
 
 
 class ConfirmacionViewSet(viewsets.ModelViewSet):
